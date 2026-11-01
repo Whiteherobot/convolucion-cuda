@@ -1,0 +1,5 @@
+bin/
+*.o
+datos/*.pgm
+__pycache__/
+resultados/*.pgm
