@@ -9,13 +9,13 @@ pisar el código de los demás.
 
 | Bloque | Responsable | Rama | Estado |
 |---|---|---|---|
-| 1. Datos, máscaras, CPU secuencial y prueba manual | Integrante 1 (Michi) | `main` | Terminado |
-| 2. Kernel CUDA, transferencias y validación CPU–GPU | Integrante 2 | `bloque-2-cuda` | Pendiente |
-| 3. Experimentos, CSV, gráficas, informe y presentación | Integrante 3 | `bloque-3-experimentos` | Pendiente |
+| 1. Datos, máscaras, CPU secuencial y prueba manual | Michael Lata | `main` | Terminado |
+| 2. Kernel CUDA, transferencias y validación CPU–GPU | Jordi Romero | `bloque-2-cuda` | Pendiente |
+| 3. Experimentos, CSV, gráficas, informe y presentación | Andrés Morocho | `bloque-3-experimentos` | Pendiente |
 
 ---
 
-## Bloque 1 — Datos, máscaras y versión secuencial (Integrante 1 (Michi))
+## Bloque 1 — Datos, máscaras y versión secuencial (Michael Lata)
 
 - [x] Estructura del repositorio, `Makefile` y `README.md`.
 - [x] Lectura y escritura de imágenes PGM en escala de grises (`src/imagen.c`).
@@ -30,7 +30,7 @@ pisar el código de los demás.
 **Entrega a los demás:** `include/imagen.h`, `include/mascaras.h` e `include/conv_cpu.h`.
 La salida de `convolucion_cpu` es la referencia de corrección y de aceleración.
 
-## Bloque 2 — Versión CUDA C (Integrante 2)
+## Bloque 2 — Versión CUDA C (Jordi Romero)
 
 Archivos: `src/conv_gpu.cu`, `include/conv_gpu.h`, `tests/test_gpu.cu`, `src/filtrar_gpu.cu`.
 
@@ -47,7 +47,7 @@ Archivos: `src/conv_gpu.cu`, `include/conv_gpu.h`, `tests/test_gpu.cu`, `src/fil
       múltiplo** del número de hilos por bloque (por ejemplo 1001×777 con 256 hilos).
 - [ ] Repetir la prueba manual de la figura 1 sobre la GPU (debe dar 78 y 87).
 
-## Bloque 3 — Experimentos y entrega (Integrante 3)
+## Bloque 3 — Experimentos y entrega (Andrés Morocho)
 
 Archivos: `experimentos/benchmark.cu`, `experimentos/graficas.py`, `resultados/*.csv`, `informe/`.
 
@@ -77,6 +77,6 @@ Archivos: `experimentos/benchmark.cu`, `experimentos/graficas.py`, `resultados/*
 
 | Integrante | Bloque | Aporte |
 |---|---|---|
-| Integrante 1 (Michi) | 1 | Datos, E/S de imágenes, máscaras, versión secuencial, prueba manual |
-| Integrante 2 | 2 | _(completar)_ |
-| Integrante 3 | 3 | _(completar)_ |
+| Michael Lata | 1 | Datos, E/S de imágenes, máscaras, versión secuencial, prueba manual |
+| Jordi Romero | 2 | _(completar)_ |
+| Andrés Morocho | 3 | _(completar)_ |
