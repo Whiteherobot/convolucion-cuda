@@ -1,5 +1,5 @@
 #!/bin/sh
-# Registra la información del equipo usada en los experimentos.
+# Guarda información del equipo. Bloque 1 - Michael Lata
 salida="resultados/equipo.txt"
 mkdir -p resultados
 {

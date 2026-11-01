@@ -1,5 +1,4 @@
-bin/
-*.o
+build/
 datos/*.pgm
-__pycache__/
 resultados/*.pgm
+__pycache__/
