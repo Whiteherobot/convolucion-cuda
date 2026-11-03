@@ -11,15 +11,15 @@ compara sus tiempos.
 | Bloque | Integrante | Qué hace | Estado |
 |---|---|---|---|
 | 1 | Michael Lata | Imágenes PGM, máscaras, convolución en CPU, prueba manual, preparación de datos | Terminado |
-| 2 | Jordi Romero | Kernel CUDA, transferencias CPU–GPU, validación CPU vs GPU | Pendiente |
+| 2 | Jordi Romero | Kernel CUDA, transferencias CPU–GPU, validación CPU vs GPU | Terminado |
 | 3 | Andrés Morocho | Experimentos, CSV, gráficas, informe y presentación | Pendiente |
 
 Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hizo.
 
-**Pendiente Bloque 2** (`convolucion_gpu.cu`, `probar_gpu` en `pruebas.cu`)
-- [ ] Kernel con bloques e hilos en X: un hilo por píxel, control de límites, ceros fuera.
-- [ ] Medir con eventos CUDA: CPU→GPU, kernel, GPU→CPU y total.
-- [ ] Error absoluto máximo y medio contra la CPU, con imagen 1001×777 y 256 hilos.
+**Bloque 2 (terminado)** (`convolucion_gpu.cu`, `probar_gpu` en `pruebas.cu`)
+- [x] Kernel con bloques e hilos en X: un hilo por píxel, control de límites, ceros fuera.
+- [x] Medir con eventos CUDA: CPU→GPU, kernel, GPU→CPU y total.
+- [x] Error absoluto máximo y medio contra la CPU, con imagen 1001×777 y 256 hilos.
 
 **Pendiente Bloque 3** (`experimentos.cu`, `graficas.py`)
 - [ ] Calentamiento y 5 repeticiones por configuración, guardadas en `resultados/mediciones.csv`.
