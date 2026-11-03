@@ -1,7 +1,10 @@
 // Convolución en GPU con CUDA. Bloque 2 - Jordi Romero
 #include <cstdio>
+#include <cstdlib>
 #include "book.h"
 #include "convolucion_gpu.h"
+
+#define MAX_HILOS_POR_BLOQUE 1024
 
 // Un hilo calcula un píxel de salida; bloques e hilos solo en X.
 __global__ void kernel_convolucion(const float *entrada, float *salida, int ancho, int alto,
@@ -32,9 +35,20 @@ void convolucion_gpu(const Imagen *ent, Imagen *sal, const Mascara *m, int hilos
     int n = ent->ancho * ent->alto;
     size_t bytes_imagen = (size_t)n * sizeof(float);
     size_t bytes_mascara = (size_t)m->k * m->k * sizeof(float);
-    int bloques = (n + hilos - 1) / hilos;
+    int bloques;
     float *dev_entrada, *dev_salida, *dev_mascara;
     cudaEvent_t inicio, tras_copia_ida, tras_kernel, fin;
+
+    if (hilos <= 0 || hilos > MAX_HILOS_POR_BLOQUE) {
+        std::fprintf(stderr, "hilos por bloque debe estar entre 1 y %d, se recibio %d\n",
+                     MAX_HILOS_POR_BLOQUE, hilos);
+        std::exit(EXIT_FAILURE);
+    }
+    // Con 0 bloques el lanzamiento es inválido: una imagen vacía no tiene nada que calcular.
+    t->h2d_ms = t->kernel_ms = t->d2h_ms = t->total_ms = 0;
+    if (n == 0)
+        return;
+    bloques = (n + hilos - 1) / hilos;
 
     HANDLE_ERROR(cudaEventCreate(&inicio));
     HANDLE_ERROR(cudaEventCreate(&tras_copia_ida));
