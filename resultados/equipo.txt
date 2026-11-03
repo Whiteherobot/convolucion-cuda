@@ -1,0 +1,16 @@
+CPU
+CPU(s):                                  20
+Model name:                              13th Gen Intel(R) Core(TM) i7-13650HX
+Thread(s) per core:                      2
+Core(s) per socket:                      14
+RAM
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       7,4Gi       3,7Gi       680Mi       5,7Gi       7,8Gi
+Swap:           15Gi       4,4Gi        10Gi
+GPU
+NVIDIA GeForce RTX 4060 Laptop GPU, 8188 MiB, 615.78.08
+Versiones
+gcc (GCC) 16.2.1 20260810
+Build cuda_13.4.r13.4/compiler.38855100_0
+Python 3.14.8
+Linux michi 7.3.0-4-cachyos #1 SMP PREEMPT_DYNAMIC Fri, 23 Oct 2026 15:03:58 +0000 x86_64 GNU/Linux

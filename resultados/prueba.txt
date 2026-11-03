@@ -1,0 +1,15 @@
+ 195.000  170.000  180.000  204.000   57.000 
+ 179.000   78.000   87.000   94.000  -79.000 
+ 200.000   98.000  109.000  108.000  -84.000 
+ 234.000  120.000  125.000  127.000  -88.000 
+  68.000  -79.000  -85.000  -90.000 -171.000 
+OK     pixel (1,1): obtenido 78.0, esperado 78.0
+OK     pixel (1,2): obtenido 87.0, esperado 87.0
+OK     esquina (0,0) con ceros: obtenido 195.0, esperado 195.0
+OK     GPU pixel (1,1): obtenido 78.0, esperado 78.0
+OK     GPU pixel (1,2): obtenido 87.0, esperado 87.0
+OK     GPU esquina (0,0) con ceros: obtenido 195.0, esperado 195.0
+OK     media 3x3 en 1001x777: error maximo 4.58e-05, medio 2.96e-06
+OK     media 9x9 en 1001x777: error maximo 4.58e-05, medio 3.78e-06
+OK     nitidez 3x3 en 1001x777: error maximo 0.00e+00, medio 0.00e+00
+OK     laplaciano 3x3 en 1001x777: error maximo 0.00e+00, medio 0.00e+00
