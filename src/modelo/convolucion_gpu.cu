@@ -1,4 +1,4 @@
-// Convolución en GPU con CUDA. Bloque 2 - Jordi Romero (pendiente)
+// Convolución en GPU con CUDA. Bloque 2 - Jordi Romero
 #include <cstdio>
 #include "book.h"
 #include "convolucion_gpu.h"
