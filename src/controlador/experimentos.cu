@@ -9,6 +9,14 @@
 //   2. Resolución      : media 9x9                 (2000/4000/6000,      hilos=256)
 //   3. Tamaño de másc. : media k=3/9/21            (imagen 4000,         hilos=256)
 //   4. Hilos por bloque: media 9x9                 (imagen 4000,    128/256/512)
+//
+// Alcance de la medición (igual en todas las configuraciones):
+//   - CPU: solo convolucion_cpu, con std::chrono.
+//   - GPU: eventos CUDA dentro de convolucion_gpu (Bloque 2). H2D incluye imagen y
+//     máscara; total = H2D + kernel + D2H. cudaMalloc/cudaFree quedan FUERA.
+//   - Fuera de todo: lectura de PGM, creación de máscaras y escritura del CSV.
+// Cada fila lleva el número de experimento, así una configuración que se repite
+// entre experimentos (p.ej. media 9x9, 4000, 256 hilos) no mezcla sus muestras.
 
 #include "experimentos.h"
 #include "imagen.h"
@@ -17,10 +25,12 @@
 #include "convolucion_gpu.h"
 #include "csv.h"
 #include "consola.h"
+#include "pruebas.h"     // TOLERANCIA
 
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -50,8 +60,9 @@ static void mascara_str(const Mascara *m, char *buf, int tam)
 //
 // Ejecuta 1 calentamiento + REPETICIONES ejecuciones medidas de CPU y GPU para
 // la combinación (imagen, máscara, hilos). Escribe todas las filas en el CSV.
+// Antes de medir compara la salida CPU y GPU del calentamiento (error absoluto).
 //
-static void medir_configuracion(FILE *csv,
+static void medir_configuracion(FILE *csv, int experimento,
                                 const Imagen  *entrada,
                                 const Mascara *mascara,
                                 int            hilos_por_bloque)
@@ -71,6 +82,18 @@ static void medir_configuracion(FILE *csv,
     convolucion_cpu(entrada, &salida_cpu, mascara);
     convolucion_gpu(entrada, &salida_gpu, mascara, hilos_por_bloque, &tiempos);
 
+    // ── Validación numérica CPU vs GPU sobre la imagen real (antes de redondear) ─
+    float err_max = 0.0f;
+    double err_suma = 0.0;
+    for (int i = 0; i < n_pixeles; i++) {
+        float e = fabsf(salida_cpu.datos[i] - salida_gpu.datos[i]);
+        if (e > err_max) err_max = e;
+        err_suma += e;
+    }
+    printf("    %s %s %s, %d hilos x %d bloques: error max %.2e, medio %.2e %s\n",
+           mascara->nombre, mask_str, res_str, hilos_por_bloque, n_bloques,
+           err_max, err_suma / n_pixeles, err_max < TOLERANCIA ? "OK" : "FUERA DE TOLERANCIA");
+
     // ── 5 repeticiones medidas ────────────────────────────────────────────────
     for (int rep = 1; rep <= REPETICIONES; rep++) {
 
@@ -84,13 +107,13 @@ static void medir_configuracion(FILE *csv,
         convolucion_gpu(entrada, &salida_gpu, mascara, hilos_por_bloque, &tiempos);
 
         // Fila CPU
-        escribir_fila_csv(csv,
+        escribir_fila_csv(csv, experimento,
             "cpu", mascara->nombre, res_str, mask_str,
             0, 0, rep,
             0.0f, 0.0f, 0.0f, 0.0f, cpu_ms, "ms");
 
         // Fila GPU
-        escribir_fila_csv(csv,
+        escribir_fila_csv(csv, experimento,
             "gpu", mascara->nombre, res_str, mask_str,
             hilos_por_bloque, n_bloques, rep,
             tiempos.h2d_ms, tiempos.kernel_ms,
@@ -133,7 +156,7 @@ static void exp1_tipo_filtro(FILE *csv)
 
     for (int f = 0; f < 3; f++) {
         printf("  Filtro: %s\n", filtros[f].nombre);
-        medir_configuracion(csv, &img, &filtros[f], 256);
+        medir_configuracion(csv, 1, &img, &filtros[f], 256);
         liberar_mascara(&filtros[f]);
     }
 
@@ -154,7 +177,7 @@ static void exp2_resolucion(FILE *csv)
         Imagen img;
         if (!cargar_imagen(rutas[r], &img)) continue;
 
-        medir_configuracion(csv, &img, &m, 256);
+        medir_configuracion(csv, 2, &img, &m, 256);
         liberar_imagen(&img);
     }
 
@@ -175,7 +198,7 @@ static void exp3_tamano_mascara(FILE *csv)
     for (int i = 0; i < 3; i++) {
         printf("  Máscara: media %dx%d\n", ks[i], ks[i]);
         Mascara m = mascara_media(ks[i]);
-        medir_configuracion(csv, &img, &m, 256);
+        medir_configuracion(csv, 3, &img, &m, 256);
         liberar_mascara(&m);
     }
 
@@ -197,7 +220,7 @@ static void exp4_hilos_por_bloque(FILE *csv)
 
     for (int i = 0; i < 3; i++) {
         printf("  Hilos/bloque: %d\n", configs[i]);
-        medir_configuracion(csv, &img, &m, configs[i]);
+        medir_configuracion(csv, 4, &img, &m, configs[i]);
     }
 
     liberar_mascara(&m);

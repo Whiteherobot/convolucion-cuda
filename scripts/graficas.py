@@ -1,587 +1,295 @@
 #!/usr/bin/env python3
-"""Procesa mediciones.csv y genera las gráficas del informe. Bloque 3 - Andrés Morocho
+"""Procesa mediciones.csv y genera tablas y gráficas del informe. Bloque 3 - Andrés Morocho
 
 Uso:
-    python3 scripts/graficas.py [ruta_csv]
+    python3 scripts/graficas.py [ruta_csv]        (por defecto resultados/mediciones.csv)
 
 Salida (en resultados/):
-    grafica_exp1_filtros.png    — Exp 1: CPU vs GPU por tipo de filtro
-    grafica_exp2_resolucion.png — Exp 2: CPU vs GPU por resolución
-    grafica_exp3_mascara.png    — Exp 3: CPU vs GPU por tamaño de máscara
-    grafica_exp4_hilos.png      — Exp 4: tiempos GPU internos por hilos/bloque
-    grafica_speedup.png         — Aceleración GPU / CPU en todos los experimentos
-    grafica_gpu_desglose.png    — Desglose h2d + kernel + d2h por experimento
+    resumen.csv                 una fila por configuración: medianas, variabilidad,
+                                aceleraciones y % de transferencias
+    grafica_exp1_filtros.png    Exp 1: CPU, kernel y GPU total por tipo de filtro
+    grafica_exp2_resolucion.png Exp 2: idem por resolución
+    grafica_exp3_mascara.png    Exp 3: idem por tamaño de máscara
+    grafica_exp4_hilos.png      Exp 4: distribución del kernel y desglose por hilos/bloque
+    grafica_speedup.png         aceleración de cómputo y con transferencias
+    grafica_gpu_desglose.png    % del tiempo GPU en H2D, kernel y D2H
+
+Definiciones:
+    mediana de las 5 repeticiones; variabilidad = desviación estándar y rango (máx - mín)
+    aceleración de cómputo         = mediana CPU / mediana kernel
+    aceleración con transferencias = mediana CPU / mediana total GPU (H2D + kernel + D2H)
 """
 
 import csv
-import sys
 import os
 import statistics
-from collections import defaultdict
+import sys
+
 import matplotlib
-matplotlib.use("Agg")          # sin pantalla (servidor / headless)
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
 
-# ── Configuración visual ──────────────────────────────────────────────────────
+SALIDA = "resultados"
+COLOR = {"cpu": "#4C72B0", "kernel": "#C44E52", "total": "#DD8452",
+         "h2d": "#55A868", "d2h": "#8172B2"}
+plt.rcParams.update({"figure.dpi": 150, "font.size": 10, "axes.titlesize": 11,
+                     "legend.fontsize": 9})
 
-COLOR_CPU    = "#4C72B0"   # azul UPS
-COLOR_GPU    = "#DD8452"   # naranja GPU total
-COLOR_H2D    = "#55A868"   # verde: copia Host→Device
-COLOR_KERNEL = "#C44E52"   # rojo: cómputo puro
-COLOR_D2H    = "#8172B2"   # morado: copia Device→Host
-DIRECTORIO_SALIDA = "resultados"
+# Orden y eje variable de cada experimento: (título, clave variable, valores en orden)
+EXPERIMENTOS = {
+    1: ("Exp 1: tipo de filtro (4000×4000, 3×3, 256 hilos)", "filtro",
+        ["media", "nitidez", "laplaciano"]),
+    2: ("Exp 2: resolución (media 9×9, 256 hilos)", "resolucion",
+        ["2000x2000", "4000x4000", "6000x6000"]),
+    3: ("Exp 3: tamaño de máscara (media, 4000×4000, 256 hilos)", "mascara",
+        ["3x3", "9x9", "21x21"]),
+    4: ("Exp 4: hilos por bloque (media 9×9, 4000×4000)", "hilos_por_bloque",
+        [128, 256, 512]),
+}
+CAMPOS_GPU = ["h2d_ms", "kernel_ms", "d2h_ms", "total_ms"]
 
-plt.rcParams.update({
-    "figure.dpi":      150,
-    "font.size":       10,
-    "axes.titlesize":  11,
-    "axes.labelsize":  10,
-    "legend.fontsize": 9,
-})
 
-# ── Carga y agrupación del CSV ────────────────────────────────────────────────
+# ── Carga ─────────────────────────────────────────────────────────────────────
 
 def cargar_csv(ruta):
-    """Lee el CSV y devuelve lista de dicts con tipos correctos."""
     filas = []
     with open(ruta, newline="", encoding="utf-8") as f:
-        for fila in csv.DictReader(f):
-            filas.append({
-                "implementacion":    fila["implementacion"],
-                "filtro":            fila["filtro"],
-                "resolucion":        fila["resolucion"],
-                "mascara":           fila["mascara"],
-                "hilos_por_bloque":  int(fila["hilos_por_bloque"]),
-                "bloques":           int(fila["bloques"]),
-                "repeticion":        int(fila["repeticion"]),
-                "h2d_ms":            float(fila["h2d_ms"]),
-                "kernel_ms":         float(fila["kernel_ms"]),
-                "d2h_ms":            float(fila["d2h_ms"]),
-                "total_ms":          float(fila["total_ms"]),
-                "cpu_ms":            float(fila["cpu_ms"]),
-            })
+        for r in csv.DictReader(f):
+            for c in ("experimento", "hilos_por_bloque", "bloques", "repeticion"):
+                r[c] = int(r[c])
+            for c in CAMPOS_GPU + ["cpu_ms"]:
+                r[c] = float(r[c])
+            filas.append(r)
     print(f"Filas leídas: {len(filas)}")
     return filas
 
 
-def agrupar(filas, *claves):
-    """Agrupa filas por las claves dadas. Devuelve dict {tuple_clave: [filas]}."""
-    grupos = defaultdict(list)
-    for f in filas:
-        k = tuple(f[c] for c in claves)
-        grupos[k].append(f)
-    return grupos
+def estadisticos(valores):
+    return {"mediana": statistics.median(valores),
+            "desv": statistics.stdev(valores) if len(valores) > 1 else 0.0,
+            "min": min(valores), "max": max(valores), "n": len(valores)}
 
 
-def mediana_campo(grupo, campo):
-    """Mediana de un campo numérico en un grupo de filas."""
-    valores = [f[campo] for f in grupo]
-    return statistics.median(valores)
+# ── Resumen por configuración ─────────────────────────────────────────────────
+
+def resumir(filas):
+    """Devuelve {experimento: [dict por configuración en el orden de EXPERIMENTOS]}."""
+    resumen = {}
+    for exp, (_, clave, orden) in EXPERIMENTOS.items():
+        resumen[exp] = []
+        for valor in orden:
+            gpu = [f for f in filas if f["experimento"] == exp
+                   and f["implementacion"] == "gpu" and f[clave] == valor]
+            if not gpu:
+                print(f"  [AVISO] Exp {exp}: sin datos para {clave}={valor}")
+                continue
+            ref = gpu[0]
+            # CPU de la misma imagen y máscara. En exp 4 la CPU no usa hilos: las tres
+            # configuraciones comparten como referencia todas las filas CPU del experimento.
+            cpu = [f for f in filas if f["experimento"] == exp
+                   and f["implementacion"] == "cpu"
+                   and f["filtro"] == ref["filtro"] and f["resolucion"] == ref["resolucion"]
+                   and f["mascara"] == ref["mascara"]]
+            c = {"experimento": exp, "variable": str(valor), "filtro": ref["filtro"],
+                 "resolucion": ref["resolucion"], "mascara": ref["mascara"],
+                 "hilos": ref["hilos_por_bloque"], "bloques": ref["bloques"],
+                 "cpu": estadisticos([f["cpu_ms"] for f in cpu])}
+            for campo in CAMPOS_GPU:
+                c[campo[:-3]] = estadisticos([f[campo] for f in gpu])
+            c["acel_computo"] = c["cpu"]["mediana"] / c["kernel"]["mediana"]
+            c["acel_total"] = c["cpu"]["mediana"] / c["total"]["mediana"]
+            c["pct_transf"] = 100 * (c["h2d"]["mediana"] + c["d2h"]["mediana"]) / c["total"]["mediana"]
+            c["muestras_kernel"] = [f["kernel_ms"] for f in gpu]
+            resumen[exp].append(c)
+    return resumen
 
 
-def stdev_campo(grupo, campo):
-    """Desviación estándar de un campo (0 si hay menos de 2 muestras)."""
-    valores = [f[campo] for f in grupo]
-    return statistics.stdev(valores) if len(valores) >= 2 else 0.0
+def guardar_resumen(resumen):
+    ruta = os.path.join(SALIDA, "resumen.csv")
+    cols = ["experimento", "variable", "filtro", "resolucion", "mascara", "hilos", "bloques"]
+    tiempos = ["cpu", "h2d", "kernel", "d2h", "total"]
+    with open(ruta, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        cab = cols[:]
+        for t in tiempos:
+            cab += [f"{t}_mediana_ms", f"{t}_desv_ms", f"{t}_min_ms", f"{t}_max_ms"]
+        cab += ["n_repeticiones", "aceleracion_computo", "aceleracion_con_transferencias",
+                "porcentaje_transferencias"]
+        w.writerow(cab)
+        for exp in resumen.values():
+            for c in exp:
+                fila = [c[k] for k in cols]
+                for t in tiempos:
+                    fila += [f"{c[t][s]:.4f}" for s in ("mediana", "desv", "min", "max")]
+                fila += [c["total"]["n"], f"{c['acel_computo']:.2f}",
+                         f"{c['acel_total']:.2f}", f"{c['pct_transf']:.1f}"]
+                w.writerow(fila)
+    print(f"  Guardado: {ruta}")
 
 
-# ── Utilidad de guardado ──────────────────────────────────────────────────────
+def imprimir_resumen(resumen):
+    print(f"\n{'=' * 100}")
+    print(f"{'Exp':<4}{'Variable':<12}{'CPU med±desv (ms)':>22}{'Kernel (ms)':>16}"
+          f"{'Total GPU (ms)':>18}{'Acel. cómp.':>12}{'Acel. total':>12}{'% transf':>10}")
+    print("-" * 100)
+    for exp in resumen.values():
+        for c in exp:
+            print(f"{c['experimento']:<4}{c['variable']:<12}"
+                  f"{c['cpu']['mediana']:>13.2f} ± {c['cpu']['desv']:<6.2f}"
+                  f"{c['kernel']['mediana']:>16.3f}{c['total']['mediana']:>18.3f}"
+                  f"{c['acel_computo']:>11.1f}×{c['acel_total']:>11.1f}×{c['pct_transf']:>9.1f}%")
+    print("=" * 100)
+
+
+# ── Gráficas ──────────────────────────────────────────────────────────────────
 
 def guardar(fig, nombre):
-    os.makedirs(DIRECTORIO_SALIDA, exist_ok=True)
-    ruta = os.path.join(DIRECTORIO_SALIDA, nombre)
+    ruta = os.path.join(SALIDA, nombre)
+    fig.tight_layout()
     fig.savefig(ruta, bbox_inches="tight")
     plt.close(fig)
     print(f"  Guardada: {ruta}")
 
 
-# ── Gráfica base: barras agrupadas CPU vs GPU ─────────────────────────────────
+def etiqueta(exp, c):
+    return f"{c['variable']} hilos" if exp == 4 else c["variable"].replace("x", "×")
 
-def grafica_cpu_vs_gpu(etiquetas, tiempos_cpu, tiempos_gpu,
-                       err_cpu, err_gpu,
-                       titulo, xlabel, nombre_archivo):
-    """
-    Barras agrupadas (CPU | GPU total) con barras de error (desv. estándar).
-    Los valores sobre cada barra muestran el tiempo en ms.
-    """
-    x    = np.arange(len(etiquetas))
-    ancho = 0.35
 
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    barras_cpu = ax.bar(x - ancho/2, tiempos_cpu, ancho,
-                        yerr=err_cpu, capsize=4,
-                        color=COLOR_CPU, label="CPU")
-    barras_gpu = ax.bar(x + ancho/2, tiempos_gpu, ancho,
-                        yerr=err_gpu, capsize=4,
-                        color=COLOR_GPU, label="GPU (total)")
-
-    # Valores encima de cada barra
-    for barra in list(barras_cpu) + list(barras_gpu):
-        h = barra.get_height()
-        ax.text(barra.get_x() + barra.get_width() / 2, h + max(tiempos_cpu + tiempos_gpu) * 0.01,
-                f"{h:.1f}", ha="center", va="bottom", fontsize=8)
-
-    ax.set_title(titulo)
+def grafica_tiempos(exp, confs, nombre, xlabel):
+    """CPU, kernel y total GPU por configuración. Eje Y logarítmico porque la CPU
+    suele estar órdenes de magnitud por encima del kernel."""
+    x = np.arange(len(confs))
+    ancho = 0.27
+    fig, ax = plt.subplots(figsize=(7.5, 4.5))
+    for i, (clave, texto) in enumerate([("cpu", "CPU secuencial"), ("kernel", "GPU kernel"),
+                                        ("total", "GPU total (con transferencias)")]):
+        med = [c[clave]["mediana"] for c in confs]
+        err = [c[clave]["desv"] for c in confs]
+        barras = ax.bar(x + (i - 1) * ancho, med, ancho, yerr=err, capsize=3,
+                        color=COLOR[clave], label=texto)
+        for b, v in zip(barras, med):
+            ax.text(b.get_x() + b.get_width() / 2, v * 1.08, f"{v:.1f}" if v >= 1 else f"{v:.2f}",
+                    ha="center", va="bottom", fontsize=7)
+    ax.set_yscale("log")
+    ax.set_title(EXPERIMENTOS[exp][0])
     ax.set_xlabel(xlabel)
-    ax.set_ylabel("Tiempo (ms) — mediana de 5 repeticiones")
+    ax.set_ylabel("Tiempo (ms, escala log)")
+    ax.text(0.99, 0.01, "Barra: mediana de 5 rep.; línea: desv. estándar",
+            transform=ax.transAxes, ha="right", va="bottom", fontsize=7, color="gray")
     ax.set_xticks(x)
-    ax.set_xticklabels(etiquetas)
+    ax.set_xticklabels([etiqueta(exp, c) for c in confs])
     ax.legend()
-    ax.grid(axis="y", linestyle="--", alpha=0.5)
-    fig.tight_layout()
-    guardar(fig, nombre_archivo)
+    ax.grid(axis="y", linestyle="--", alpha=0.5, which="both")
+    guardar(fig, nombre)
 
 
-# ── Experimento 1: Tipo de filtro ─────────────────────────────────────────────
+def grafica_hilos(confs):
+    """Izquierda: cada repetición del kernel (variabilidad). Derecha: desglose GPU."""
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10, 4.5))
+    etiquetas = [etiqueta(4, c) for c in confs]
+    a1.boxplot([c["muestras_kernel"] for c in confs], showmeans=False)
+    for i, c in enumerate(confs, start=1):
+        a1.scatter([i] * len(c["muestras_kernel"]), c["muestras_kernel"],
+                   color=COLOR["kernel"], s=14, zorder=3)
+    a1.set_xticks(range(1, len(confs) + 1))
+    a1.set_xticklabels(etiquetas)
+    a1.set_title("Tiempo del kernel por repetición")
+    a1.set_ylabel("Tiempo kernel (ms)")
+    a1.grid(axis="y", linestyle="--", alpha=0.5)
 
-def graficar_exp1(filas):
-    """
-    Fija: imagen 4000x4000, k=3x3, 256 hilos.
-    Varía: media, nitidez, laplaciano.
-    """
-    print("\n[Exp 1] Tipo de filtro")
-    filtros_orden = ["media", "nitidez", "laplaciano"]
-
-    cpu_med, cpu_err = [], []
-    gpu_med, gpu_err = [], []
-
-    for filtro in filtros_orden:
-        grupo_cpu = [f for f in filas
-                     if f["implementacion"] == "cpu"
-                     and f["filtro"] == filtro
-                     and f["resolucion"] == "4000x4000"
-                     and f["mascara"] == "3x3"]
-        grupo_gpu = [f for f in filas
-                     if f["implementacion"] == "gpu"
-                     and f["filtro"] == filtro
-                     and f["resolucion"] == "4000x4000"
-                     and f["mascara"] == "3x3"
-                     and f["hilos_por_bloque"] == 256]
-
-        if not grupo_cpu or not grupo_gpu:
-            print(f"  [AVISO] Sin datos para filtro='{filtro}'")
-            continue
-
-        cpu_med.append(mediana_campo(grupo_cpu, "cpu_ms"))
-        cpu_err.append(stdev_campo(grupo_cpu, "cpu_ms"))
-        gpu_med.append(mediana_campo(grupo_gpu, "total_ms"))
-        gpu_err.append(stdev_campo(grupo_gpu, "total_ms"))
-
-    if not cpu_med:
-        print("  Sin datos suficientes, omitiendo.")
-        return
-
-    grafica_cpu_vs_gpu(
-        filtros_orden, cpu_med, gpu_med, cpu_err, gpu_err,
-        "Exp 1: Tiempo por tipo de filtro\n(imagen 4000×4000, máscara 3×3, 256 hilos)",
-        "Tipo de filtro",
-        "grafica_exp1_filtros.png"
-    )
-
-
-# ── Experimento 2: Resolución ─────────────────────────────────────────────────
-
-def graficar_exp2(filas):
-    """
-    Fija: media, k=9x9, 256 hilos.
-    Varía: 2000x2000, 4000x4000, 6000x6000.
-    """
-    print("\n[Exp 2] Resolución")
-    resoluciones = ["2000x2000", "4000x4000", "6000x6000"]
-
-    cpu_med, cpu_err = [], []
-    gpu_med, gpu_err = [], []
-
-    for res in resoluciones:
-        grupo_cpu = [f for f in filas
-                     if f["implementacion"] == "cpu"
-                     and f["filtro"] == "media"
-                     and f["resolucion"] == res
-                     and f["mascara"] == "9x9"]
-        grupo_gpu = [f for f in filas
-                     if f["implementacion"] == "gpu"
-                     and f["filtro"] == "media"
-                     and f["resolucion"] == res
-                     and f["mascara"] == "9x9"
-                     and f["hilos_por_bloque"] == 256]
-
-        if not grupo_cpu or not grupo_gpu:
-            print(f"  [AVISO] Sin datos para resolución='{res}'")
-            continue
-
-        cpu_med.append(mediana_campo(grupo_cpu, "cpu_ms"))
-        cpu_err.append(stdev_campo(grupo_cpu, "cpu_ms"))
-        gpu_med.append(mediana_campo(grupo_gpu, "total_ms"))
-        gpu_err.append(stdev_campo(grupo_gpu, "total_ms"))
-
-    if not cpu_med:
-        print("  Sin datos suficientes, omitiendo.")
-        return
-
-    grafica_cpu_vs_gpu(
-        resoluciones, cpu_med, gpu_med, cpu_err, gpu_err,
-        "Exp 2: Tiempo por resolución de imagen\n(filtro media, máscara 9×9, 256 hilos)",
-        "Resolución (píxeles)",
-        "grafica_exp2_resolucion.png"
-    )
-
-
-# ── Experimento 3: Tamaño de máscara ─────────────────────────────────────────
-
-def graficar_exp3(filas):
-    """
-    Fija: imagen 4000x4000, media, 256 hilos.
-    Varía: k=3x3, 9x9, 21x21.
-    """
-    print("\n[Exp 3] Tamaño de máscara")
-    mascaras = ["3x3", "9x9", "21x21"]
-
-    cpu_med, cpu_err = [], []
-    gpu_med, gpu_err = [], []
-
-    for mask in mascaras:
-        grupo_cpu = [f for f in filas
-                     if f["implementacion"] == "cpu"
-                     and f["filtro"] == "media"
-                     and f["resolucion"] == "4000x4000"
-                     and f["mascara"] == mask]
-        grupo_gpu = [f for f in filas
-                     if f["implementacion"] == "gpu"
-                     and f["filtro"] == "media"
-                     and f["resolucion"] == "4000x4000"
-                     and f["mascara"] == mask
-                     and f["hilos_por_bloque"] == 256]
-
-        if not grupo_cpu or not grupo_gpu:
-            print(f"  [AVISO] Sin datos para máscara='{mask}'")
-            continue
-
-        cpu_med.append(mediana_campo(grupo_cpu, "cpu_ms"))
-        cpu_err.append(stdev_campo(grupo_cpu, "cpu_ms"))
-        gpu_med.append(mediana_campo(grupo_gpu, "total_ms"))
-        gpu_err.append(stdev_campo(grupo_gpu, "total_ms"))
-
-    if not cpu_med:
-        print("  Sin datos suficientes, omitiendo.")
-        return
-
-    grafica_cpu_vs_gpu(
-        mascaras, cpu_med, gpu_med, cpu_err, gpu_err,
-        "Exp 3: Tiempo por tamaño de máscara\n(imagen 4000×4000, filtro media, 256 hilos)",
-        "Tamaño de máscara (k×k)",
-        "grafica_exp3_mascara.png"
-    )
-
-
-# ── Experimento 4: Hilos por bloque ──────────────────────────────────────────
-
-def graficar_exp4(filas):
-    """
-    Fija: imagen 4000x4000, media, k=9x9.
-    Varía: 128, 256, 512 hilos/bloque.
-    Muestra desglose h2d + kernel + d2h como barras apiladas.
-    """
-    print("\n[Exp 4] Hilos por bloque")
-    configs = [128, 256, 512]
-    etiquetas = [f"{h} hilos" for h in configs]
-
-    h2d_med, ker_med, d2h_med = [], [], []
-    h2d_err, ker_err, d2h_err = [], [], []
-    cpu_med_vals = []
-
-    for hilos in configs:
-        grupo_gpu = [f for f in filas
-                     if f["implementacion"] == "gpu"
-                     and f["filtro"] == "media"
-                     and f["resolucion"] == "4000x4000"
-                     and f["mascara"] == "9x9"
-                     and f["hilos_por_bloque"] == hilos]
-        grupo_cpu = [f for f in filas
-                     if f["implementacion"] == "cpu"
-                     and f["filtro"] == "media"
-                     and f["resolucion"] == "4000x4000"
-                     and f["mascara"] == "9x9"]
-
-        if not grupo_gpu:
-            print(f"  [AVISO] Sin datos GPU para {hilos} hilos")
-            continue
-
-        h2d_med.append(mediana_campo(grupo_gpu, "h2d_ms"))
-        ker_med.append(mediana_campo(grupo_gpu, "kernel_ms"))
-        d2h_med.append(mediana_campo(grupo_gpu, "d2h_ms"))
-        h2d_err.append(stdev_campo(grupo_gpu, "h2d_ms"))
-        ker_err.append(stdev_campo(grupo_gpu, "kernel_ms"))
-        d2h_err.append(stdev_campo(grupo_gpu, "d2h_ms"))
-        cpu_med_vals.append(mediana_campo(grupo_cpu, "cpu_ms") if grupo_cpu else None)
-
-    if not h2d_med:
-        print("  Sin datos suficientes, omitiendo.")
-        return
-
-    x     = np.arange(len(etiquetas[:len(h2d_med)]))
-    ancho = 0.5
-
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-
-    # Barras apiladas GPU
-    b_h2d = ax.bar(x, h2d_med, ancho, color=COLOR_H2D,    label="H→D (copia a GPU)")
-    b_ker = ax.bar(x, ker_med, ancho, bottom=h2d_med,      color=COLOR_KERNEL, label="Kernel (cómputo)")
-    b_d2h = ax.bar(x, d2h_med, ancho,
-                   bottom=[a + b for a, b in zip(h2d_med, ker_med)],
-                   color=COLOR_D2H, label="D→H (copia a CPU)")
-
-    # Línea horizontal del tiempo CPU (referencia)
-    cpu_ref = [v for v in cpu_med_vals if v is not None]
-    if cpu_ref:
-        cpu_val = cpu_ref[0]
-        ax.axhline(cpu_val, color=COLOR_CPU, linestyle="--", linewidth=1.5,
-                   label=f"CPU ref. ({cpu_val:.1f} ms)")
-
-    ax.set_title("Exp 4: Desglose GPU por hilos/bloque\n"
-                 "(imagen 4000×4000, filtro media, máscara 9×9)")
-    ax.set_xlabel("Configuración de hilos por bloque")
-    ax.set_ylabel("Tiempo (ms) — mediana de 5 repeticiones")
-    ax.set_xticks(x)
-    ax.set_xticklabels(etiquetas[:len(h2d_med)])
-    ax.legend()
-    ax.grid(axis="y", linestyle="--", alpha=0.5)
-    fig.tight_layout()
+    x = np.arange(len(confs))
+    h2d = np.array([c["h2d"]["mediana"] for c in confs])
+    ker = np.array([c["kernel"]["mediana"] for c in confs])
+    d2h = np.array([c["d2h"]["mediana"] for c in confs])
+    a2.bar(x, h2d, 0.5, color=COLOR["h2d"], label="CPU→GPU")
+    a2.bar(x, ker, 0.5, bottom=h2d, color=COLOR["kernel"], label="Kernel")
+    a2.bar(x, d2h, 0.5, bottom=h2d + ker, color=COLOR["d2h"], label="GPU→CPU")
+    a2.set_xticks(x)
+    a2.set_xticklabels(etiquetas)
+    a2.set_title("Desglose GPU (medianas)")
+    a2.set_ylabel("Tiempo (ms)")
+    a2.legend()
+    a2.grid(axis="y", linestyle="--", alpha=0.5)
+    fig.suptitle(EXPERIMENTOS[4][0])
     guardar(fig, "grafica_exp4_hilos.png")
 
 
-# ── Gráfica de Speedup ────────────────────────────────────────────────────────
+def todas_las_configuraciones(resumen):
+    return [(exp, c) for exp, confs in resumen.items() for c in confs]
 
-def graficar_speedup(filas):
-    """
-    Calcula Speedup = cpu_ms / total_ms para cada configuración.
-    Muestra speedup en función del experimento y variable.
-    """
-    print("\n[Speedup] Aceleración GPU sobre CPU")
 
-    # Configuraciones de referencia de cada experimento
-    experimentos = [
-        # (etiqueta larga,       etiqueta corta,  filtro,       res,         mask,  hilos)
-        ("E1: media 3×3",        "media 3×3",     "media",      "4000x4000", "3x3",   256),
-        ("E1: nitidez 3×3",      "nitidez 3×3",   "nitidez",    "4000x4000", "3x3",   256),
-        ("E1: laplaciano 3×3",   "laplaciano 3×3","laplaciano", "4000x4000", "3x3",   256),
-        ("E2: media 9×9 2000",   "2000×2000",     "media",      "2000x2000", "9x9",   256),
-        ("E2: media 9×9 4000",   "4000×4000",     "media",      "4000x4000", "9x9",   256),
-        ("E2: media 9×9 6000",   "6000×6000",     "media",      "6000x6000", "9x9",   256),
-        ("E3: media 3×3",        "k=3×3",         "media",      "4000x4000", "3x3",   256),
-        ("E3: media 9×9",        "k=9×9",         "media",      "4000x4000", "9x9",   256),
-        ("E3: media 21×21",      "k=21×21",       "media",      "4000x4000", "21x21", 256),
-        ("E4: 128 hilos",        "128 hilos",     "media",      "4000x4000", "9x9",   128),
-        ("E4: 256 hilos",        "256 hilos",     "media",      "4000x4000", "9x9",   256),
-        ("E4: 512 hilos",        "512 hilos",     "media",      "4000x4000", "9x9",   512),
-    ]
-
-    etiquetas, speedups, colores_exp = [], [], []
-    palette = {
-        "E1": "#4C72B0", "E2": "#DD8452", "E3": "#55A868", "E4": "#C44E52"
-    }
-
-    for (label_largo, label_corto, filtro, res, mask, hilos) in experimentos:
-        g_cpu = [f for f in filas
-                 if f["implementacion"] == "cpu"
-                 and f["filtro"] == filtro
-                 and f["resolucion"] == res
-                 and f["mascara"] == mask]
-        g_gpu = [f for f in filas
-                 if f["implementacion"] == "gpu"
-                 and f["filtro"] == filtro
-                 and f["resolucion"] == res
-                 and f["mascara"] == mask
-                 and f["hilos_por_bloque"] == hilos]
-
-        if not g_cpu or not g_gpu:
-            continue
-
-        cpu_t = mediana_campo(g_cpu, "cpu_ms")
-        gpu_t = mediana_campo(g_gpu, "total_ms")
-        if gpu_t == 0:
-            continue
-
-        speedup = cpu_t / gpu_t
-        etiquetas.append(label_corto)
-        speedups.append(speedup)
-        prefijo = label_largo[:2]
-        colores_exp.append(palette.get(prefijo, "#888888"))
-
-    if not speedups:
-        print("  Sin datos suficientes, omitiendo.")
-        return
-
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    x = np.arange(len(etiquetas))
-    barras = ax.bar(x, speedups, color=colores_exp, edgecolor="white", linewidth=0.5)
-
-    # Línea speedup = 1 (sin ganancia)
-    ax.axhline(1.0, color="black", linestyle="--", linewidth=1.2, label="Speedup = 1 (igual)")
-
-    # Valor encima de cada barra
-    for barra, sp in zip(barras, speedups):
-        ax.text(barra.get_x() + barra.get_width() / 2,
-                barra.get_height() + max(speedups) * 0.01,
-                f"{sp:.1f}×", ha="center", va="bottom", fontsize=8)
-
-    # Leyenda de colores por experimento
-    leyenda = [mpatches.Patch(color=c, label=f"Exp {n}")
-               for n, c in [("1", palette["E1"]), ("2", palette["E2"]),
-                             ("3", palette["E3"]), ("4", palette["E4"])]]
-    ax.legend(handles=leyenda + [plt.Line2D([0], [0], color="black",
-                                            linestyle="--", label="Speedup = 1")])
-
-    ax.set_title("Aceleración GPU sobre CPU (Speedup = T_CPU / T_GPU_total)")
-    ax.set_xlabel("Configuración")
-    ax.set_ylabel("Speedup")
+def grafica_speedup(resumen):
+    pares = todas_las_configuraciones(resumen)
+    x = np.arange(len(pares))
+    comp = [c["acel_computo"] for _, c in pares]
+    total = [c["acel_total"] for _, c in pares]
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.bar(x - 0.2, comp, 0.4, color=COLOR["kernel"], label="Cómputo (CPU / kernel)")
+    ax.bar(x + 0.2, total, 0.4, color=COLOR["total"], label="Con transferencias (CPU / total)")
+    for xi, v in zip(x - 0.2, comp):
+        ax.text(xi, v * 1.08, f"{v:.0f}×", ha="center", fontsize=7)
+    for xi, v in zip(x + 0.2, total):
+        ax.text(xi, v * 1.08, f"{v:.1f}×", ha="center", fontsize=7)
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1, label="Aceleración = 1")
+    ax.set_yscale("log")
     ax.set_xticks(x)
-    ax.set_xticklabels(etiquetas, rotation=30, ha="right", fontsize=8)
-    ax.grid(axis="y", linestyle="--", alpha=0.5)
-    fig.tight_layout()
+    ax.set_xticklabels([f"E{e}: {etiqueta(e, c)}" for e, c in pares], rotation=30,
+                       ha="right", fontsize=8)
+    ax.set_ylabel("Aceleración (escala log)")
+    ax.set_title("Aceleración respecto a la CPU secuencial (medianas)")
+    ax.legend()
+    ax.grid(axis="y", linestyle="--", alpha=0.5, which="both")
     guardar(fig, "grafica_speedup.png")
 
 
-# ── Gráfica de desglose GPU global ───────────────────────────────────────────
-
-def graficar_desglose_gpu(filas):
-    """
-    Muestra qué porcentaje del tiempo GPU total es:
-    h2d (transferencia), kernel (cómputo), d2h (transferencia de vuelta).
-    Barras apiladas al 100% para comparar overhead de transferencias.
-    """
-    print("\n[Desglose GPU] Porcentaje h2d / kernel / d2h")
-
-    # Mismas configuraciones clave del speedup
-    configs = [
-        ("media 3×3",  "media",      "4000x4000", "3x3",   256),
-        ("nitidez",    "nitidez",    "4000x4000", "3x3",   256),
-        ("laplaciano", "laplaciano", "4000x4000", "3x3",   256),
-        ("media 9×9\n2000", "media", "2000x2000", "9x9",   256),
-        ("media 9×9\n4000", "media", "4000x4000", "9x9",   256),
-        ("media 9×9\n6000", "media", "6000x6000", "9x9",   256),
-        ("k=21×21",    "media",      "4000x4000", "21x21", 256),
-    ]
-
-    etiquetas, pct_h2d, pct_ker, pct_d2h = [], [], [], []
-
-    for (label, filtro, res, mask, hilos) in configs:
-        g = [f for f in filas
-             if f["implementacion"] == "gpu"
-             and f["filtro"] == filtro
-             and f["resolucion"] == res
-             and f["mascara"] == mask
-             and f["hilos_por_bloque"] == hilos]
-        if not g:
-            continue
-
-        h2d = mediana_campo(g, "h2d_ms")
-        ker = mediana_campo(g, "kernel_ms")
-        d2h = mediana_campo(g, "d2h_ms")
-        total = h2d + ker + d2h
-        if total == 0:
-            continue
-
-        etiquetas.append(label)
-        pct_h2d.append(100 * h2d / total)
-        pct_ker.append(100 * ker  / total)
-        pct_d2h.append(100 * d2h / total)
-
-    if not etiquetas:
-        print("  Sin datos GPU suficientes, omitiendo.")
-        return
-
-    x     = np.arange(len(etiquetas))
-    ancho = 0.6
-
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.bar(x, pct_h2d, ancho, color=COLOR_H2D,    label="H→D")
-    ax.bar(x, pct_ker, ancho, bottom=pct_h2d,      color=COLOR_KERNEL, label="Kernel")
-    ax.bar(x, pct_d2h, ancho,
-           bottom=[a + b for a, b in zip(pct_h2d, pct_ker)],
-           color=COLOR_D2H, label="D→H")
-
-    ax.set_title("Desglose del tiempo GPU: transferencias vs cómputo (%)")
-    ax.set_xlabel("Configuración")
-    ax.set_ylabel("% del tiempo GPU total")
+def grafica_desglose(resumen):
+    pares = todas_las_configuraciones(resumen)
+    x = np.arange(len(pares))
+    tot = np.array([c["h2d"]["mediana"] + c["kernel"]["mediana"] + c["d2h"]["mediana"]
+                    for _, c in pares])
+    h2d = 100 * np.array([c["h2d"]["mediana"] for _, c in pares]) / tot
+    ker = 100 * np.array([c["kernel"]["mediana"] for _, c in pares]) / tot
+    d2h = 100 * np.array([c["d2h"]["mediana"] for _, c in pares]) / tot
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.bar(x, h2d, 0.6, color=COLOR["h2d"], label="CPU→GPU")
+    ax.bar(x, ker, 0.6, bottom=h2d, color=COLOR["kernel"], label="Kernel")
+    ax.bar(x, d2h, 0.6, bottom=h2d + ker, color=COLOR["d2h"], label="GPU→CPU")
+    for xi, p in zip(x, h2d + d2h):
+        ax.text(xi, 101, f"{p:.0f}%", ha="center", fontsize=7)
     ax.set_ylim(0, 110)
     ax.set_xticks(x)
-    ax.set_xticklabels(etiquetas, fontsize=8)
-    ax.legend(loc="upper right")
-    ax.grid(axis="y", linestyle="--", alpha=0.5)
-    fig.tight_layout()
+    ax.set_xticklabels([f"E{e}: {etiqueta(e, c)}" for e, c in pares], rotation=30,
+                       ha="right", fontsize=8)
+    ax.set_ylabel("% del tiempo GPU total")
+    ax.set_title("Proporción del tiempo GPU (número arriba = % en transferencias)")
+    ax.legend(loc="lower right")
     guardar(fig, "grafica_gpu_desglose.png")
-
-
-# ── Resumen en consola ────────────────────────────────────────────────────────
-
-def imprimir_resumen(filas):
-    """Imprime tabla de medianas por configuración principal."""
-    print("\n{'='*65}")
-    print(f"{'Configuración':<30} {'CPU (ms)':>10} {'GPU total (ms)':>14} {'Speedup':>8}")
-    print("-" * 65)
-
-    configs = [
-        ("E1 media 3×3 4000",     "media",      "4000x4000", "3x3",   256),
-        ("E1 nitidez 3×3 4000",   "nitidez",    "4000x4000", "3x3",   256),
-        ("E1 laplaciano 3×3 4000","laplaciano", "4000x4000", "3x3",   256),
-        ("E2 media 9×9 2000",     "media",      "2000x2000", "9x9",   256),
-        ("E2 media 9×9 4000",     "media",      "4000x4000", "9x9",   256),
-        ("E2 media 9×9 6000",     "media",      "6000x6000", "9x9",   256),
-        ("E3 media 3×3 4000",     "media",      "4000x4000", "3x3",   256),
-        ("E3 media 9×9 4000",     "media",      "4000x4000", "9x9",   256),
-        ("E3 media 21×21 4000",   "media",      "4000x4000", "21x21", 256),
-        ("E4 media 9×9 128h",     "media",      "4000x4000", "9x9",   128),
-        ("E4 media 9×9 256h",     "media",      "4000x4000", "9x9",   256),
-        ("E4 media 9×9 512h",     "media",      "4000x4000", "9x9",   512),
-    ]
-
-    for (label, filtro, res, mask, hilos) in configs:
-        g_cpu = [f for f in filas
-                 if f["implementacion"] == "cpu"
-                 and f["filtro"] == filtro
-                 and f["resolucion"] == res
-                 and f["mascara"] == mask]
-        g_gpu = [f for f in filas
-                 if f["implementacion"] == "gpu"
-                 and f["filtro"] == filtro
-                 and f["resolucion"] == res
-                 and f["mascara"] == mask
-                 and f["hilos_por_bloque"] == hilos]
-
-        if not g_cpu or not g_gpu:
-            continue
-
-        cpu_t = mediana_campo(g_cpu, "cpu_ms")
-        gpu_t = mediana_campo(g_gpu, "total_ms")
-        sp    = cpu_t / gpu_t if gpu_t > 0 else float("inf")
-        print(f"{label:<30} {cpu_t:>10.1f} {gpu_t:>14.1f} {sp:>7.1f}×")
-
-    print("=" * 65)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    ruta_csv = sys.argv[1] if len(sys.argv) > 1 else "resultados/mediciones.csv"
-
+    ruta_csv = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SALIDA, "mediciones.csv")
     if not os.path.exists(ruta_csv):
-        print(f"[ERROR] No se encontró: {ruta_csv}")
-        print("        Ejecuta primero: ./build/convolucion medir")
+        print(f"[ERROR] No se encontró: {ruta_csv}. Ejecuta primero: ./build/convolucion medir")
         sys.exit(1)
+    os.makedirs(SALIDA, exist_ok=True)
 
-    filas = cargar_csv(ruta_csv)
-
-    graficar_exp1(filas)
-    graficar_exp2(filas)
-    graficar_exp3(filas)
-    graficar_exp4(filas)
-    graficar_speedup(filas)
-    graficar_desglose_gpu(filas)
-    imprimir_resumen(filas)
-
-    print(f"\nTodas las gráficas guardadas en '{DIRECTORIO_SALIDA}/'")
+    resumen = resumir(cargar_csv(ruta_csv))
+    guardar_resumen(resumen)
+    xlabels = {1: "Tipo de filtro", 2: "Resolución (píxeles)", 3: "Tamaño de máscara (k×k)"}
+    nombres = {1: "grafica_exp1_filtros.png", 2: "grafica_exp2_resolucion.png",
+               3: "grafica_exp3_mascara.png"}
+    for exp in (1, 2, 3):
+        if resumen[exp]:
+            grafica_tiempos(exp, resumen[exp], nombres[exp], xlabels[exp])
+    if resumen[4]:
+        grafica_hilos(resumen[4])
+    if any(resumen.values()):
+        grafica_speedup(resumen)
+        grafica_desglose(resumen)
+    imprimir_resumen(resumen)
 
 
 if __name__ == "__main__":

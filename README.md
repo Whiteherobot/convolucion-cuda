@@ -21,10 +21,32 @@ Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hiz
 - [x] Medir con eventos CUDA: CPU→GPU, kernel, GPU→CPU y total.
 - [x] Error absoluto máximo y medio contra la CPU, con imagen 1001×777 y 256 hilos.
 
-**Pendiente Bloque 3** (`experimentos.cu`, `graficas.py`)
-- [ ] Calentamiento y 5 repeticiones por configuración, guardadas en `resultados/mediciones.csv`.
-- [ ] Experimentos: filtro (3×3, 4000), resolución (media 9×9), máscara (3, 9, 21), hilos (128, 256, 512).
-- [ ] Mediana, variabilidad, aceleraciones y gráficas; informe y diapositivas.
+**Bloque 3** (`experimentos.cu`, `csv.cpp`, `graficas.py`)
+- [x] Calentamiento (1 ejecución sin medir) y 5 repeticiones por configuración, guardadas en `resultados/mediciones.csv`.
+- [x] Experimentos: filtro (3×3, 4000), resolución (media 9×9), máscara (3, 9, 21), hilos (128, 256, 512).
+- [x] Validación CPU vs GPU (error máximo y medio) sobre cada imagen real antes de medir.
+- [x] Mediana, variabilidad (desv. estándar, mín, máx), aceleraciones y gráficas (`resultados/resumen.csv`).
+- [ ] Ejecutar `medir` en el equipo con GPU y subir `mediciones.csv`, `resumen.csv`, gráficas y `equipo.txt`.
+- [ ] Informe y diapositivas.
+
+### Mediciones
+
+| Experimento | Varía | Fijo |
+|---|---|---|
+| 1 | media, nitidez, laplaciano | 4000×4000, 3×3, 256 hilos |
+| 2 | 2000, 4000, 6000 | media 9×9, 256 hilos |
+| 3 | k = 3, 9, 21 | media, 4000×4000, 256 hilos |
+| 4 | 128, 256, 512 hilos | media 9×9, 4000×4000 |
+
+- CPU: solo `convolucion_cpu`, medido con `std::chrono::steady_clock`.
+- GPU: eventos CUDA. CPU→GPU incluye imagen y máscara; total = CPU→GPU + kernel + GPU→CPU.
+  La reserva (`cudaMalloc`/`cudaFree`) **no** está incluida.
+- No se mide lectura/escritura de archivos ni preparación de imágenes.
+- Los bloques se ajustan para cubrir la imagen: `bloques = (ancho·alto + hilos − 1) / hilos`.
+- Cada fila del CSV lleva su número de experimento: la configuración media 9×9, 4000, 256 hilos
+  aparece en los experimentos 2, 3 y 4 y cada uno conserva sus propias 5 repeticiones.
+- Aceleración de cómputo = mediana CPU / mediana kernel. Aceleración con transferencias =
+  mediana CPU / mediana total GPU.
 
 ## Estructura
 
@@ -53,7 +75,7 @@ resultados/               CSV y datos del equipo
 
 ## Uso
 
-Requiere CUDA Toolkit 12 o posterior, CMake 3.24 o posterior y Python 3 con `pillow` y `matplotlib`.
+Requiere CUDA Toolkit 12 o posterior, CMake 3.24 o posterior y Python 3 con `pillow`, `matplotlib` y `numpy`.
 
 ```bash
 cmake -S . -B build && cmake --build build -j         # compila build/convolucion
@@ -61,7 +83,8 @@ cmake -S . -B build && cmake --build build -j         # compila build/convolucio
 python3 scripts/preparar_imagenes.py datos/original.jpg   # genera datos/imagen_{2000,4000,6000}.pgm
 ./build/convolucion filtrar datos/imagen_4000.pgm resultados/media.pgm media 9 cpu
 ./build/convolucion filtrar datos/imagen_4000.pgm resultados/media.pgm media 9 gpu 256
-./build/convolucion medir                               # experimentos
+./build/convolucion medir                             # experimentos -> resultados/mediciones.csv
+python3 scripts/graficas.py                           # resumen.csv y gráficas en resultados/
 bash scripts/info_equipo.sh                           # datos del equipo
 ```
 
