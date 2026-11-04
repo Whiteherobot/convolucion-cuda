@@ -2,113 +2,44 @@
 
 Práctica 01 · Computación Paralela · Universidad Politécnica Salesiana
 
-Aplica filtros de convolución (media, nitidez y laplaciano) a imágenes en escala de grises de
-2000×2000, 4000×4000 y 6000×6000 píxeles, en una versión secuencial en C y otra en CUDA C, y
-compara sus tiempos.
+Aplicamos filtros de convolución (media, nitidez y laplaciano) a imágenes en escala de grises, con
+una versión secuencial y otra en CUDA C, y comparamos sus tiempos.
 
-## Integrantes y división del trabajo
+**Integrantes:** Michael Lata, Jordi Romero y Andrés Morocho.
 
-| Bloque | Integrante | Qué hace | Estado |
-|---|---|---|---|
-| 1 | Michael Lata | Imágenes PGM, máscaras, convolución en CPU, prueba manual, preparación de datos | Terminado |
-| 2 | Jordi Romero | Kernel CUDA, transferencias CPU–GPU, validación CPU vs GPU | Terminado |
-| 3 | Andrés Morocho | Experimentos, CSV, gráficas, informe y presentación | Terminado |
+El informe está en `informe/informe.tex` y las diapositivas en `presentacion/`.
 
-Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hizo.
+## Requisitos
 
-**Bloque 2 (terminado)** (`convolucion_gpu.cu`, `probar_gpu` en `pruebas.cu`)
-- [x] Kernel con bloques e hilos en X: un hilo por píxel, control de límites, ceros fuera.
-- [x] Medir con eventos CUDA: CPU→GPU, kernel, GPU→CPU y total.
-- [x] Error absoluto máximo y medio contra la CPU, con imagen 1001×777 y 256 hilos.
+- CUDA Toolkit 12 o posterior y una GPU NVIDIA
+- CMake 3.24 o posterior
+- Python 3 con `pillow`, `matplotlib` y `numpy`
+- LaTeX, solo para compilar el informe
 
-**Bloque 3 (terminado)** (`experimentos.cu`, `medicion.cu`, `csv.cpp`, `graficas.py`)
-- [x] Por configuración: CPU (1 calentamiento + 5 medidas), calentamiento GPU de 2 s y 5 medidas GPU seguidas, guardadas en `resultados/mediciones.csv`.
-- [x] Experimentos: filtro (3×3, 4000), resolución (media 9×9), máscara (3, 9, 21), hilos (128, 256, 512).
-- [x] Validación CPU vs GPU (error máximo y medio) sobre cada imagen real antes de medir.
-- [x] Mediana, variabilidad (desv. estándar, mín, máx), aceleraciones y gráficas (`resultados/resumen.csv`).
-- [x] Corrida 1 en el equipo con GPU (`mediciones_corrida1.csv`): tiempos de GPU con dos niveles de rendimiento.
-- [x] Corrida 2 con registro del estado de la GPU (`mediciones_corrida2.csv`, `gpu_estado_corrida2.csv`): la GPU cambia de estado entre repeticiones.
-- [x] Corrida 3 con el nuevo orden de medición (`mediciones.csv`, `gpu_estado.csv`): los 12 bloques GPU en P0, variación del kernel 0.04 %.
-- [x] Figuras de filtros y rangos (`scripts/figuras_filtros.py`).
-- [x] Informe (`informe/informe.tex`).
-- [x] Diapositivas (`presentacion/`).
-
-### Mediciones
-
-| Experimento | Varía | Fijo |
-|---|---|---|
-| 1 | media, nitidez, laplaciano | 4000×4000, 3×3, 256 hilos |
-| 2 | 2000, 4000, 6000 | media 9×9, 256 hilos |
-| 3 | k = 3, 9, 21 | media, 4000×4000, 256 hilos |
-| 4 | 128, 256, 512 hilos | media 9×9, 4000×4000 |
-
-- CPU: solo `convolucion_cpu`, medido con `std::chrono::steady_clock`.
-- GPU: eventos CUDA. CPU→GPU incluye imagen y máscara; total = CPU→GPU + kernel + GPU→CPU.
-  La reserva (`cudaMalloc`/`cudaFree`) **no** está incluida.
-- No se mide lectura/escritura de archivos ni preparación de imágenes.
-- Los bloques se ajustan para cubrir la imagen: `bloques = (ancho·alto + hilos − 1) / hilos`.
-- Cada fila del CSV lleva su número de experimento: la configuración media 9×9, 4000, 256 hilos
-  aparece en los experimentos 2, 3 y 4 y cada uno conserva sus propias 5 repeticiones.
-- `graficas.py [csv] [sufijo]`: con sufijo los archivos no se pisan entre corridas, p.ej.
-  `python3 scripts/graficas.py resultados/mediciones_corrida1.csv _corrida1`.
-- El % de transferencias se calcula en cada repetición y luego se toma la mediana.
-- Aceleración de cómputo = mediana CPU / mediana kernel. Aceleración con transferencias =
-  mediana CPU / mediana total GPU.
-
-## Estructura
-
-```text
-common/book.h             HANDLE_ERROR y CHECK_KERNEL (CUDA by Example)
-src/
-  modelo/                 datos y cálculo
-    imagen.cpp            leer y guardar PGM                          B1
-    mascara.cpp           máscaras media, nitidez y laplaciano        B1
-    convolucion_cpu.cpp   convolución secuencial (referencia)         B1
-    convolucion_gpu.cu    convolución en CUDA                         B2
-  vista/                  lo que se muestra o se guarda
-    consola.cpp           imprimir matrices, máscaras y tiempos       B1
-    csv.cpp               escribir las mediciones                     B3
-  controlador/            decide qué se ejecuta
-    main.cu               lee los argumentos (filtrar, probar, medir) B1
-    pruebas.cu            prueba manual (B1) y validación GPU (B2)
-    experimentos.cu       los cuatro experimentos                     B3
-    medicion.cu           medición de una configuración (CPU, GPU)    B3
-scripts/
-  preparar_imagenes.py    recorte y redimensionado a 2000/4000/6000   B1
-  info_equipo.sh          CPU, RAM, GPU y versiones                   B1
-  graficas.py             gráficas a partir del CSV                   B3
-  figuras_filtros.py      imágenes de los filtros para el informe     B3
-informe/                  informe en LaTeX (lee figuras y tablas de resultados/) B3
-presentacion/             diapositivas de la exposición (PDF) B3
-datos/                    foto original y ejemplos (los .pgm se generan, no se suben)
-resultados/               CSV y datos del equipo
-```
-
-## Uso
-
-Requiere CUDA Toolkit 12 o posterior, CMake 3.24 o posterior y Python 3 con `pillow`, `matplotlib` y `numpy`.
+## Cómo ejecutarlo
 
 ```bash
-cmake -S . -B build && cmake --build build -j         # compila build/convolucion
-./build/convolucion probar                            # prueba manual y validación GPU
-python3 scripts/preparar_imagenes.py datos/original.jpg   # genera datos/imagen_{2000,4000,6000}.pgm
+# Compilar
+cmake -S . -B build && cmake --build build -j
+
+# Prueba manual y validación CPU contra GPU
+./build/convolucion probar
+
+# Generar las imágenes de 2000, 4000 y 6000 píxeles
+python3 scripts/preparar_imagenes.py datos/original.jpg
+
+# Aplicar un filtro en CPU o en GPU
 ./build/convolucion filtrar datos/imagen_4000.pgm resultados/media.pgm media 9 cpu
 ./build/convolucion filtrar datos/imagen_4000.pgm resultados/media.pgm media 9 gpu 256
-./build/convolucion medir                             # experimentos -> resultados/mediciones.csv
-python3 scripts/graficas.py                           # resumen.csv y gráficas en resultados/
-python3 scripts/figuras_filtros.py                    # imágenes de los filtros y rangos antes de 0–255
-cd informe && latexmk -pdf informe.tex                # informe PDF (o: tectonic informe.tex)
-bash scripts/info_equipo.sh                           # datos del equipo
+
+# Medir los experimentos y generar la tabla y las gráficas
+./build/convolucion medir
+python3 scripts/graficas.py
+
+# Figuras de los filtros y compilación del informe
+python3 scripts/figuras_filtros.py
+cd informe && latexmk -pdf informe.tex
 ```
-
-## Imágenes
-
-Las tres resoluciones salen de la misma foto, `datos/original.jpg` (6200×8272): recorte cuadrado
-centrado de 6200×6200 y reducción con LANCZOS a 6000, 4000 y 2000. No hay ampliación.
-`ejemplo_perro.jpg` solo se usa para mostrar el efecto de los filtros en el informe.
-
-Fotos de Unsplash (licencia Unsplash): Davide Manzini (`original.jpg`) y Alvan Nee
-(`ejemplo_perro.jpg`).
 
 ## Filtros
 
@@ -118,14 +49,58 @@ Fotos de Unsplash (licencia Unsplash): Davide Manzini (`original.jpg`) y Alvan N
 | Nitidez | [0,−1,0; −1,5,−1; 0,−1,0] | Realza bordes y detalles |
 | Laplaciano | [0,1,0; 1,−4,1; 0,1,0] | Resalta cambios de intensidad |
 
-## Decisiones
+Fuera de la imagen se toman ceros. Se calcula como correlación; como las tres máscaras son
+simétricas, el resultado es igual al de la convolución. Los cálculos se hacen en `float` y solo al
+guardar se redondea y se recorta a 0–255.
 
-- Mismo estilo que los ejemplos de *CUDA by Example*: `HANDLE_ERROR` en cada llamada a CUDA,
-  `tid = blockIdx.x * blockDim.x + threadIdx.x`, eventos CUDA para el kernel y `std::chrono` para la CPU.
-- Fuera de la imagen se toman ceros.
-- Se calcula como correlación (sin invertir la máscara); como las tres máscaras son simétricas,
-  el resultado es igual al de la convolución.
-- Los cálculos se hacen en `float` y se validan así. Solo al guardar se redondea y se recorta
-  a 0–255.
-- La prueba manual usa la matriz de la figura 1 del enunciado: debe dar 78 en (1,1), 87 en
-  (1,2) y 195 en la esquina (0,0).
+## Experimentos
+
+| Experimento | Varía | Fijo |
+|---|---|---|
+| Filtro | media, nitidez, laplaciano | 4000×4000, 3×3, 256 hilos |
+| Resolución | 2000, 4000, 6000 | media 9×9, 256 hilos |
+| Máscara | k = 3, 9, 21 | media, 4000×4000, 256 hilos |
+| Hilos por bloque | 128, 256, 512 | media 9×9, 4000×4000 |
+
+Para cada configuración se mide la CPU (1 calentamiento y 5 repeticiones), se calienta la GPU al
+menos 2 s y se toman 5 repeticiones en GPU. La CPU se mide con `std::chrono` y la GPU con eventos
+CUDA. No se mide la lectura o escritura de archivos ni la reserva de memoria.
+
+## Resultados
+
+Medianas de 5 repeticiones con la media en 4000×4000 y 256 hilos, en un i7-13650HX y una RTX 4060
+Laptop:
+
+| Máscara | CPU (ms) | Kernel (ms) | Total GPU (ms) | Aceleración de cómputo | Aceleración con copias | Copias |
+|---|---:|---:|---:|---:|---:|---:|
+| 3×3 | 159.2 | 0.64 | 11.00 | 250× | 14× | 94 % |
+| 9×9 | 1084.4 | 2.77 | 13.07 | 392× | 83× | 79 % |
+| 21×21 | 6675.3 | 14.82 | 25.79 | 450× | 259× | 43 % |
+
+El error máximo entre CPU y GPU fue de 1.22×10⁻⁴, por debajo de la tolerancia de 10⁻³. Los
+hilos por bloque casi no cambian el tiempo. La tabla completa y el análisis están en el informe.
+
+## Estructura
+
+```text
+common/book.h       HANDLE_ERROR y CHECK_KERNEL (CUDA by Example)
+src/modelo/         imágenes PGM, máscaras y convolución en CPU y GPU
+src/vista/          salida por consola y CSV
+src/controlador/    argumentos, pruebas, experimentos y medición
+scripts/            preparar imágenes, gráficas, figuras y datos del equipo
+datos/              foto original y ejemplo (los .pgm se generan, no se suben)
+resultados/         mediciones, tablas, gráficas y datos del equipo
+informe/            informe en LaTeX
+presentacion/       diapositivas en PDF
+```
+
+Los archivos `resultados/*_corrida1*` y `*_corrida2*` son mediciones previas que no se usan en el
+análisis.
+
+## Imágenes
+
+Las tres resoluciones salen de la misma foto, `datos/original.jpg` (6200×8272): recorte cuadrado
+centrado de 6200×6200 y reducción con LANCZOS a 6000, 4000 y 2000. No se amplía ninguna.
+
+Fotos de Unsplash (licencia Unsplash): Davide Manzini (`original.jpg`) y Alvan Nee
+(`ejemplo_perro.jpg`).
