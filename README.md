@@ -103,10 +103,10 @@ bash scripts/info_equipo.sh                           # datos del equipo
 
 Las tres resoluciones salen de la misma foto, `datos/original.jpg` (6200×8272): recorte cuadrado
 centrado de 6200×6200 y reducción con LANCZOS a 6000, 4000 y 2000. No hay ampliación.
-`ejemplo_bosque.jpg` y `ejemplo_perro.jpg` solo se usan para mostrar el efecto de los filtros en el informe.
+`ejemplo_perro.jpg` solo se usa para mostrar el efecto de los filtros en el informe.
 
-Fotos de Unsplash (licencia Unsplash): Davide Manzini (`original.jpg`), Filip Kvasnák (`ejemplo_bosque.jpg`)
-y Alvan Nee (`ejemplo_perro.jpg`).
+Fotos de Unsplash (licencia Unsplash): Davide Manzini (`original.jpg`) y Alvan Nee
+(`ejemplo_perro.jpg`).
 
 ## Filtros
 
