@@ -21,13 +21,16 @@ Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hiz
 - [x] Medir con eventos CUDA: CPU→GPU, kernel, GPU→CPU y total.
 - [x] Error absoluto máximo y medio contra la CPU, con imagen 1001×777 y 256 hilos.
 
-**Bloque 3** (`experimentos.cu`, `csv.cpp`, `graficas.py`)
-- [x] Calentamiento (1 ejecución sin medir) y 5 repeticiones por configuración, guardadas en `resultados/mediciones.csv`.
+**Bloque 3** (`experimentos.cu`, `medicion.cu`, `csv.cpp`, `graficas.py`)
+- [x] Por configuración: CPU (1 calentamiento + 5 medidas), calentamiento GPU de 2 s y 5 medidas GPU seguidas, guardadas en `resultados/mediciones.csv`.
 - [x] Experimentos: filtro (3×3, 4000), resolución (media 9×9), máscara (3, 9, 21), hilos (128, 256, 512).
 - [x] Validación CPU vs GPU (error máximo y medio) sobre cada imagen real antes de medir.
 - [x] Mediana, variabilidad (desv. estándar, mín, máx), aceleraciones y gráficas (`resultados/resumen.csv`).
-- [ ] Ejecutar `medir` en el equipo con GPU y subir `mediciones.csv`, `resumen.csv`, gráficas y `equipo.txt`.
-- [ ] Informe y diapositivas.
+- [x] Corrida 1 en el equipo con GPU (`mediciones_corrida1.csv`): tiempos de GPU con dos niveles de rendimiento.
+- [x] Corrida 2 con registro del estado de la GPU (`mediciones_corrida2.csv`, `gpu_estado_corrida2.csv`): la GPU cambia de estado entre repeticiones.
+- [ ] Corrida 3 con el nuevo orden de medición (calentamiento GPU de 2 s, CPU y GPU en bloques).
+- [x] Figuras de filtros y rangos (`scripts/figuras_filtros.py`).
+- [ ] Informe (`informe/informe.tex`, faltan las partes que dependen de la corrida 3) y diapositivas.
 
 ### Mediciones
 
@@ -45,6 +48,9 @@ Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hiz
 - Los bloques se ajustan para cubrir la imagen: `bloques = (ancho·alto + hilos − 1) / hilos`.
 - Cada fila del CSV lleva su número de experimento: la configuración media 9×9, 4000, 256 hilos
   aparece en los experimentos 2, 3 y 4 y cada uno conserva sus propias 5 repeticiones.
+- `graficas.py [csv] [sufijo]`: con sufijo los archivos no se pisan entre corridas, p.ej.
+  `python3 scripts/graficas.py resultados/mediciones_corrida1.csv _corrida1`.
+- El % de transferencias se calcula en cada repetición y luego se toma la mediana.
 - Aceleración de cómputo = mediana CPU / mediana kernel. Aceleración con transferencias =
   mediana CPU / mediana total GPU.
 
@@ -65,10 +71,13 @@ src/
     main.cu               lee los argumentos (filtrar, probar, medir) B1
     pruebas.cu            prueba manual (B1) y validación GPU (B2)
     experimentos.cu       los cuatro experimentos                     B3
+    medicion.cu           medición de una configuración (CPU, GPU)    B3
 scripts/
   preparar_imagenes.py    recorte y redimensionado a 2000/4000/6000   B1
   info_equipo.sh          CPU, RAM, GPU y versiones                   B1
   graficas.py             gráficas a partir del CSV                   B3
+  figuras_filtros.py      imágenes de los filtros para el informe     B3
+informe/                  informe en LaTeX (lee figuras y tablas de resultados/) B3
 datos/                    foto original y ejemplos (los .pgm se generan, no se suben)
 resultados/               CSV y datos del equipo
 ```
@@ -85,6 +94,8 @@ python3 scripts/preparar_imagenes.py datos/original.jpg   # genera datos/imagen_
 ./build/convolucion filtrar datos/imagen_4000.pgm resultados/media.pgm media 9 gpu 256
 ./build/convolucion medir                             # experimentos -> resultados/mediciones.csv
 python3 scripts/graficas.py                           # resumen.csv y gráficas en resultados/
+python3 scripts/figuras_filtros.py                    # imágenes de los filtros y rangos antes de 0–255
+cd informe && latexmk -pdf informe.tex                # informe PDF (o: tectonic informe.tex)
 bash scripts/info_equipo.sh                           # datos del equipo
 ```
 
