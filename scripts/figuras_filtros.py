@@ -69,7 +69,8 @@ def filtrar(entrada, base):
 
 def panel(original, rutas, titulo, nombre, recorte=None):
     items = [("Original", original)] + [(TITULOS[f], rutas[f]) for f in FILTROS]
-    fig, axs = plt.subplots(2, 3, figsize=(10, 7.2))
+    # constrained_layout deja espacio a los títulos de la segunda fila (con tight_layout se montaban)
+    fig, axs = plt.subplots(2, 3, figsize=(10, 7.6), constrained_layout=True)
     for ax, (t, ruta) in zip(axs.flat, items):
         im = Image.open(ruta).convert("L")
         if recorte:
@@ -78,7 +79,6 @@ def panel(original, rutas, titulo, nombre, recorte=None):
         ax.set_title(t)
         ax.axis("off")
     fig.suptitle(titulo)
-    fig.tight_layout()
     ruta = os.path.join("resultados", nombre)
     fig.savefig(ruta, dpi=150, bbox_inches="tight")
     plt.close(fig)

@@ -137,8 +137,8 @@ def guardar_tabla_latex(resumen):
                 etiqueta_exp = f"{exp} ({nombres[exp]})" if i == 0 else ""
                 f.write(f"{etiqueta_exp} & {c['variable'].replace('x', '$\\times$')} & "
                         f"{c['cpu']['mediana']:.1f} & {c['cpu']['desv']:.1f} & "
-                        f"{c['h2d']['mediana']:.2f} & {c['kernel']['mediana']:.2f} & "
-                        f"{c['kernel']['desv']:.2f} & {c['total']['mediana']:.2f} & "
+                        f"{c['h2d']['mediana']:.2f} & {c['kernel']['mediana']:.3f} & "
+                        f"{c['kernel']['desv']:.4f} & {c['total']['mediana']:.2f} & "
                         f"{c['acel_computo']:.1f} / {c['acel_total']:.1f} & "
                         f"{c['pct_transf']:.1f} \\\\\n")
             if confs and exp != 4:
@@ -219,11 +219,13 @@ def grafica_tiempos(exp, confs, nombre, xlabel):
     ax.set_title(EXPERIMENTOS[exp][0])
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Tiempo (ms, escala log)")
-    ax.text(0.99, 0.01, "Barra: mediana de 5 rep.; línea: desv. estándar",
-            transform=ax.transAxes, ha="right", va="bottom", fontsize=7, color="gray")
     ax.set_xticks(x)
     ax.set_xticklabels([etiqueta(exp, c) for c in confs])
-    ax.legend()
+    # Margen arriba para la leyenda en una fila: dentro del gráfico tapaba las barras.
+    tope = max(c["cpu"]["mediana"] for c in confs)
+    ax.set_ylim(top=tope * 40)
+    ax.legend(title="Barra: mediana de 5 rep.; línea: desv. estándar", title_fontsize=7,
+              loc="upper center", ncol=3, fontsize=7)
     ax.grid(axis="y", linestyle="--", alpha=0.5, which="both")
     guardar(fig, nombre)
 
@@ -282,7 +284,9 @@ def grafica_speedup(resumen):
                        ha="right", fontsize=8)
     ax.set_ylabel("Aceleración (escala log)")
     ax.set_title("Aceleración respecto a la CPU secuencial (medianas)")
-    ax.legend()
+    # Margen arriba y leyenda en una fila: así no tapa las etiquetas de las barras altas.
+    ax.set_ylim(top=max(comp) * 8)
+    ax.legend(loc="upper center", ncol=3, fontsize=8)
     ax.grid(axis="y", linestyle="--", alpha=0.5, which="both")
     guardar(fig, "grafica_speedup.png")
 
@@ -300,13 +304,13 @@ def grafica_desglose(resumen):
     ax.bar(x, d2h, 0.6, bottom=h2d + ker, color=COLOR["d2h"], label="GPU→CPU")
     for xi, (_, c) in zip(x, pares):
         ax.text(xi, 101, f"{c['pct_transf']:.0f}%", ha="center", fontsize=7)
-    ax.set_ylim(0, 110)
+    ax.set_ylim(0, 125)  # espacio arriba para la leyenda, que abajo tapaba las barras
     ax.set_xticks(x)
     ax.set_xticklabels([f"E{e}: {etiqueta(e, c)}" for e, c in pares], rotation=30,
                        ha="right", fontsize=8)
     ax.set_ylabel("% del tiempo GPU total")
     ax.set_title("Proporción del tiempo GPU (mediana por repetición; número = % en transferencias)")
-    ax.legend(loc="lower right")
+    ax.legend(loc="upper center", ncol=3, fontsize=8)
     guardar(fig, "grafica_gpu_desglose.png")
 
 

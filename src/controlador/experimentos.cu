@@ -21,6 +21,7 @@
 #include "imagen.h"
 #include "mascara.h"
 #include "csv.h"
+#include "book.h"        // HANDLE_ERROR
 
 #include <cstdio>
 
@@ -94,16 +95,34 @@ static void exp3_tamano_mascara(FILE *csv)
     liberar_imagen(&img);
 }
 
+// El enunciado pide 128, 256 y 512 hilos "si el dispositivo lo permite": el límite se
+// consulta a la GPU en vez de suponerlo, y una configuración que lo supere se omite.
+static int max_hilos_dispositivo(void)
+{
+    int dispositivo = 0, max_hilos = 0;
+    HANDLE_ERROR(cudaGetDevice(&dispositivo));
+    HANDLE_ERROR(cudaDeviceGetAttribute(&max_hilos, cudaDevAttrMaxThreadsPerBlock, dispositivo));
+    return max_hilos;
+}
+
 static void exp4_hilos_por_bloque(FILE *csv)
 {
     printf("\n[Exp 4] Hilos por bloque (imagen 4000, media 9x9)\n");
+    int max_hilos = max_hilos_dispositivo();
+    printf("  Límite del dispositivo: %d hilos por bloque\n", max_hilos);
+
     Imagen img;
     if (!cargar_imagen(RUTA_4000, &img)) return;
 
     Mascara m = mascara_media(9);
     int hilos[3] = {128, 256, 512};
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 3; i++) {
+        if (hilos[i] > max_hilos) {
+            printf("  [AVISO] %d hilos por bloque supera el límite: se omite\n", hilos[i]);
+            continue;
+        }
         medir(csv, 4, &img, &m, hilos[i]);
+    }
 
     liberar_mascara(&m);
     liberar_imagen(&img);

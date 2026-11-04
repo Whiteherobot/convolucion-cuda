@@ -12,7 +12,7 @@ compara sus tiempos.
 |---|---|---|---|
 | 1 | Michael Lata | Imágenes PGM, máscaras, convolución en CPU, prueba manual, preparación de datos | Terminado |
 | 2 | Jordi Romero | Kernel CUDA, transferencias CPU–GPU, validación CPU vs GPU | Terminado |
-| 3 | Andrés Morocho | Experimentos, CSV, gráficas, informe y presentación | Pendiente |
+| 3 | Andrés Morocho | Experimentos, CSV, gráficas, informe y presentación | Terminado |
 
 Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hizo.
 
@@ -21,16 +21,17 @@ Cada archivo indica en su primera línea a qué bloque pertenece y quién lo hiz
 - [x] Medir con eventos CUDA: CPU→GPU, kernel, GPU→CPU y total.
 - [x] Error absoluto máximo y medio contra la CPU, con imagen 1001×777 y 256 hilos.
 
-**Bloque 3** (`experimentos.cu`, `medicion.cu`, `csv.cpp`, `graficas.py`)
+**Bloque 3 (terminado)** (`experimentos.cu`, `medicion.cu`, `csv.cpp`, `graficas.py`)
 - [x] Por configuración: CPU (1 calentamiento + 5 medidas), calentamiento GPU de 2 s y 5 medidas GPU seguidas, guardadas en `resultados/mediciones.csv`.
 - [x] Experimentos: filtro (3×3, 4000), resolución (media 9×9), máscara (3, 9, 21), hilos (128, 256, 512).
 - [x] Validación CPU vs GPU (error máximo y medio) sobre cada imagen real antes de medir.
 - [x] Mediana, variabilidad (desv. estándar, mín, máx), aceleraciones y gráficas (`resultados/resumen.csv`).
 - [x] Corrida 1 en el equipo con GPU (`mediciones_corrida1.csv`): tiempos de GPU con dos niveles de rendimiento.
 - [x] Corrida 2 con registro del estado de la GPU (`mediciones_corrida2.csv`, `gpu_estado_corrida2.csv`): la GPU cambia de estado entre repeticiones.
-- [ ] Corrida 3 con el nuevo orden de medición (calentamiento GPU de 2 s, CPU y GPU en bloques).
+- [x] Corrida 3 con el nuevo orden de medición (`mediciones.csv`, `gpu_estado.csv`): los 12 bloques GPU en P0, variación del kernel 0.04 %.
 - [x] Figuras de filtros y rangos (`scripts/figuras_filtros.py`).
-- [ ] Informe (`informe/informe.tex`, faltan las partes que dependen de la corrida 3) y diapositivas.
+- [x] Informe (`informe/informe.tex`).
+- [x] Diapositivas (`presentacion/`).
 
 ### Mediciones
 
@@ -78,6 +79,7 @@ scripts/
   graficas.py             gráficas a partir del CSV                   B3
   figuras_filtros.py      imágenes de los filtros para el informe     B3
 informe/                  informe en LaTeX (lee figuras y tablas de resultados/) B3
+presentacion/             diapositivas de la exposición (PDF) B3
 datos/                    foto original y ejemplos (los .pgm se generan, no se suben)
 resultados/               CSV y datos del equipo
 ```

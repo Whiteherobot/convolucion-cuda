@@ -24,7 +24,7 @@
 
 
 \title{Desarrollo e implementación de aplicaciones de cómputo paralelo basado en CUDA C}        % Title
-\author{Michael Lata \\ Jordi Romero \\ Kevin Andrés Morocho Remache}    % Author
+\author{Michael Lata \\ Jordi Romero \\ Andres Morocho}    % Author
 \date{\today}                            % Date
 
 \makeatletter
@@ -38,12 +38,9 @@
 \lhead{Convolución de imágenes en CPU y CUDA C}
 \cfoot{\thepage}
 
-% Lo marcado con \pendiente{} se completa con la corrida 2.
+% Lo marcado con \pendiente{} se completa antes de la entrega.
 \newcommand{\pendiente}[1]{\textcolor{red}{\textbf{[PENDIENTE: #1]}}}
-% Archivos de resultados: en el repo están en ../resultados/; en Overleaf se suben a images/
-% o a la raíz del proyecto. Si una tabla falta, se muestra un aviso en rojo en vez de un error.
-\newcommand{\existeresultado}[3]{%
-  \IfFileExists{../resultados/#1}{#2}{\IfFileExists{images/#1}{#2}{\IfFileExists{#1}{#2}{#3}}}}
+% Tablas generadas: en el repo están en ../resultados/; en Overleaf, en images/ o en la raíz.
 \newcommand{\tabla}[1]{%
   \IfFileExists{../resultados/#1}{\input{../resultados/#1}}{%
   \IfFileExists{images/#1}{\input{images/#1}}{%
@@ -57,9 +54,7 @@
 
 \begin{document}
 
-\renewcommand{\listtablename}{Lista de Tablas}
 \renewcommand{\tablename}{Tabla}
-\renewcommand{\listfigurename}{Lista de Figuras}
 \renewcommand{\figurename}{Figura }
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -100,65 +95,44 @@
 %%%%%%%%%%%%%    FIN  PORTADA  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%  INICIO INDICE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-\tableofcontents  %GENERA TABLA DE CONTENIDOS (Remover %)
-\pagebreak        %PARA HACER UN SALTO DE PAGINA (Remover %)
-
-\listoftables  %GENERA LISTA DE TABLAS (Remover %)
-%\pagebreak        %PARA HACER UN SALTO DE PAGINA (Remover %)
-
-\listoffigures  %GENERA LISTA DE FIGURAS (Remover %)
-
+\tableofcontents
 \pagebreak
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%    FIN  INDICE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%    INICIO   TEXTO   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% ───────────────────────────── 1 ─────────────────────────────
 \section{Introducción}
 
-Aplicar tres filtros de convolución (media, realce de nitidez y laplaciano) a imágenes en
-escala de grises de $2000\times2000$, $4000\times4000$ y $6000\times6000$ píxeles, con una
-versión secuencial en C/C++ que sirve de referencia y una versión en CUDA C donde cada hilo
-calcula un píxel de salida \cite{cudaguide,sanders2010}. Sobre ambas se valida la corrección numérica y se mide cómo
-influyen en el tiempo el volumen de datos (resolución), el trabajo por píxel (tamaño de
-máscara), la configuración de hilos por bloque y las transferencias CPU--GPU.
+En esta práctica aplicamos tres filtros de convolución (media, realce de nitidez y laplaciano)
+a imágenes en escala de grises de $2000\times2000$, $4000\times4000$ y $6000\times6000$ píxeles.
+Hicimos dos versiones: una secuencial en C/C++, que usamos como referencia, y otra en CUDA C en
+la que cada hilo calcula un píxel de salida \cite{cudaguide,sanders2010}. Con las dos
+comprobamos que el resultado numérico es el mismo y medimos cómo cambia el tiempo con la
+resolución, con el tamaño de la máscara, con los hilos por bloque y con las copias entre CPU y
+GPU.
 
-% ───────────────────────────── 2 ─────────────────────────────
 \section{Solución}
 
-El programa es un único ejecutable, \texttt{convolucion}, organizado en modelo, vista y
-controlador:
+Todo está en un solo ejecutable, \texttt{convolucion}, ordenado en modelo, vista y controlador.
+En \texttt{src/modelo} están la lectura y escritura de imágenes PGM, las máscaras, la
+convolución secuencial (\texttt{convolucion\_cpu.cpp}) y la de CUDA
+(\texttt{convolucion\_gpu.cu}). En \texttt{src/vista} está lo que se imprime en consola y la
+escritura del CSV. En \texttt{src/controlador}, \texttt{main.cu} recibe uno de tres modos
+(\texttt{filtrar}, \texttt{probar} o \texttt{medir}); las pruebas están en
+\texttt{pruebas.cu}, los experimentos en \texttt{experimentos.cu} y la forma de medir cada
+configuración en \texttt{medicion.cu}.
 
-\begin{itemize}
-  \item \textbf{Modelo} (\texttt{src/modelo}): lectura y escritura PGM (\texttt{imagen.cpp}),
-        máscaras (\texttt{mascara.cpp}), convolución secuencial (\texttt{convolucion\_cpu.cpp})
-        y convolución CUDA (\texttt{convolucion\_gpu.cu}).
-  \item \textbf{Vista} (\texttt{src/vista}): impresión en consola y escritura del CSV.
-  \item \textbf{Controlador} (\texttt{src/controlador}): \texttt{main.cu} con tres modos
-        (\texttt{filtrar}, \texttt{probar}, \texttt{medir}), las pruebas de corrección
-        (\texttt{pruebas.cu}) y los experimentos (\texttt{experimentos.cu}).
-\end{itemize}
+Las dos versiones trabajan en las mismas condiciones: la imagen de 8 bits se lee a
+\texttt{float}, las máscaras son las mismas y también están en \texttt{float}, fuera de la
+imagen se usa extensión con ceros y la entrada y la salida van en arreglos separados.
+Calculamos una correlación, es decir, sin invertir la máscara; como las tres máscaras son
+simétricas, el resultado es el mismo que el de la convolución.
 
-Condiciones comunes a CPU y GPU: imágenes en grises de 8 bits leídas a \texttt{float},
-mismas máscaras en \texttt{float}, extensión con ceros fuera de la imagen y arreglos
-separados de entrada y salida. Se calcula como correlación (sin invertir la máscara); como
-las tres máscaras son simétricas respecto de su centro, el resultado coincide con el de la
-convolución.
+Los cálculos y la validación se hacen en \texttt{float}. Solo cuando se guarda el PGM
+(\texttt{guardar\_pgm}) cada valor se recorta al rango $[0,255]$ y se redondea. Esta
+conversión pierde información en los filtros que dan valores fuera de ese rango, como se ve
+en la sección~\ref{sec:imagenes}.
 
-\paragraph{Conversión al rango de visualización.} Todo el cálculo y la validación se hacen
-en \texttt{float}. Solo al guardar el PGM (\texttt{guardar\_pgm}) cada valor se recorta a
-$[0,255]$ y se redondea (\texttt{a\_rango\_visual}). Esta conversión pierde información en los
-filtros que producen valores fuera del rango (sección~\ref{sec:imagenes}).
-
-% ───────────────────────────── 3 ─────────────────────────────
 \section{Filtros y máscaras}
 
 \begin{table}[H]
@@ -169,27 +143,27 @@ filtros que producen valores fuera del rango (sección~\ref{sec:imagenes}).
 Filtro & Máscara & Efecto \\
 \midrule
 Media $k\times k$ ($k=3,9,21$) & todos los coeficientes $= \dfrac{1}{k^2}$ &
-  Suaviza: promedia la vecindad \\[2ex]
+  Suaviza la imagen \\[2ex]
 Nitidez $3\times3$ & $\begin{bmatrix}0&-1&0\\-1&5&-1\\0&-1&0\end{bmatrix}$ &
   Realza bordes y detalles \\[4ex]
 Laplaciano $3\times3$ & $\begin{bmatrix}0&1&0\\1&-4&1\\0&1&0\end{bmatrix}$ &
-  Resalta cambios de intensidad \\
+  Marca los cambios de intensidad \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Las máscaras siguen las definiciones habituales de filtrado espacial \cite{gonzalez2018}. La media suma 1, por lo que conserva el brillo medio y su salida queda siempre en $[0,255]$.
-La nitidez equivale a la imagen original menos su laplaciano (suma 1): conserva las zonas
-uniformes y amplifica las diferencias con los vecinos. El laplaciano suma 0: en zonas
-uniformes da 0 y en los bordes da valores positivos o negativos según el lado del cambio.
+Las máscaras son las definiciones habituales de filtrado espacial \cite{gonzalez2018}. Los
+coeficientes de la media suman 1, así que el brillo promedio no cambia y la salida nunca sale
+de $[0,255]$. La nitidez es la imagen original menos su laplaciano: en zonas uniformes deja el
+mismo valor y donde hay diferencias con los vecinos las aumenta. El laplaciano suma 0, por lo
+que en zonas uniformes da 0 y en los bordes da valores positivos o negativos según el lado del
+cambio.
 
-% ───────────────────────────── 4 ─────────────────────────────
 \section{Distribución del trabajo en la GPU}
 
-Se usan bloques e hilos solo en la dimensión X. La imagen de $\textit{ancho}\times\textit{alto}$
-se trata como un arreglo lineal de $n=\textit{ancho}\cdot\textit{alto}$ píxeles almacenado por
-filas, y cada hilo calcula un píxel de salida leyendo la entrada y la máscara desde memoria
-global:
+Usamos bloques e hilos solo en X. La imagen se guarda por filas en un arreglo de
+$n=\textit{ancho}\cdot\textit{alto}$ píxeles y cada hilo calcula un píxel de salida leyendo la
+imagen y la máscara desde memoria global:
 
 \begin{lstlisting}
 int tid = blockIdx.x * blockDim.x + threadIdx.x;  // índice global del hilo
@@ -206,19 +180,19 @@ if (tid < ancho * alto) {                          // el último bloque puede so
 }
 \end{lstlisting}
 
-El número de bloques se ajusta para cubrir la imagen:
-$\textit{bloques} = \lceil n / \textit{hilos} \rceil = (n + \textit{hilos} - 1) / \textit{hilos}$.
-Los hilos con $\textit{tid} \ge n$ no hacen nada. Por ejemplo, la imagen de prueba de
-$1001\times777$ tiene $777\,777$ píxeles; con 256 hilos por bloque se lanzan 3039 bloques
-($777\,984$ hilos) y 207 hilos del último bloque quedan inactivos. Las imágenes de los
-experimentos sí son múltiplos (por ejemplo, $4000^2/256 = 62\,500$ bloques), por eso la prueba
-con $1001\times777$ es la que ejercita el control de límites.
+La fila sale de dividir el índice global entre el ancho y la columna del residuo. El número de
+bloques se redondea hacia arriba para cubrir toda la imagen,
+$\textit{bloques} = (n + \textit{hilos} - 1) / \textit{hilos}$, y los hilos que quedan con
+$\textit{tid} \ge n$ no hacen nada. Por ejemplo, la imagen de prueba de $1001\times777$ tiene
+$777\,777$ píxeles; con 256 hilos por bloque se lanzan 3039 bloques y los últimos 207 hilos
+quedan sin trabajo. Las imágenes de los experimentos sí son múltiplos de los hilos por bloque
+($4000^2/256 = 62\,500$ bloques), por eso el control de límites lo probamos con la de
+$1001\times777$.
 
-% ───────────────────────────── 5 ─────────────────────────────
-\section{Equipo y herramientas}
+\section{Equipo y preparación de datos}
 
-Las mediciones se ejecutaron en el equipo de Michael Lata. Datos tomados de
-\texttt{resultados/equipo.txt} (generado por \texttt{scripts/info\_equipo.sh}):
+Las mediciones se hicieron en el portátil de Michael Lata. Los datos salen de
+\texttt{resultados/equipo.txt}, que genera \texttt{scripts/info\_equipo.sh}.
 
 \begin{table}[H]
 \centering
@@ -228,335 +202,336 @@ Las mediciones se ejecutaron en el equipo de Michael Lata. Datos tomados de
 CPU & Intel Core i7-13650HX, 14 núcleos, 20 hilos \\
 RAM & 15 GiB \\
 GPU & NVIDIA GeForce RTX 4060 Laptop GPU, 8188 MiB \\
+Capacidad de cómputo & 8.9 \\
+Máx. hilos por bloque & 1024 \\
 Driver NVIDIA & 615.78.08 \\
-CUDA & 13.4 (\texttt{nvcc} build \texttt{cuda\_13.4.r13.4}) \\
-Compilador host & GCC 16.2.1 \\
-CMake & 4.4.5 \\
+CUDA & 13.4 \\
+Compilador & GCC 16.2.1, CMake 4.4.5 (modo Release) \\
 Python & 3.14.8 \\
 Sistema & Linux 7.3.0-4-cachyos x86\_64 \\
-Compilación & CMake en modo Release, arquitectura CUDA \texttt{native} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% ───────────────────────────── 6 ─────────────────────────────
-\section{Preparación de datos}
+Las tres resoluciones salen de la misma foto, \texttt{datos/original.jpg}, de
+$6200\times8272$ píxeles. El script \texttt{scripts/preparar\_imagenes.py} la pasa a grises,
+recorta un cuadrado centrado de $6200\times6200$ (desde la fila 1036) y lo reduce con LANCZOS a
+6000, 4000 y 2000 píxeles de lado, así que ninguna imagen se amplía. Las dos versiones leen
+exactamente los mismos archivos \texttt{datos/imagen\_\{2000,4000,6000\}.pgm}.
 
-Las tres resoluciones se obtienen de la misma fotografía, \texttt{datos/original.jpg}
-($6200\times8272$), con \texttt{scripts/preparar\_imagenes.py}: conversión a grises, recorte
-cuadrado centrado de $6200\times6200$ (desde la fila 1036) y reducción con LANCZOS a 6000, 4000
-y 2000 píxeles de lado. No hay ampliación. Todas las implementaciones leen exactamente los
-mismos archivos \texttt{datos/imagen\_\{2000,4000,6000\}.pgm}.
+\section{Metodología}\label{sec:metodologia}
 
-% ───────────────────────────── 7 ─────────────────────────────
-\section{Metodología de medición}
+Cambiamos un solo factor por experimento. Salvo en el de hilos, dejamos 256 hilos por bloque y
+el número de bloques se ajusta para cubrir la imagen.
 
 \begin{table}[H]
 \centering
-\caption{Experimentos. Se modifica un factor a la vez.}
-\begin{tabular}{clll}
+\caption{Experimentos.}
+\small
+\begin{tabular}{p{1.9cm}p{4.1cm}p{3.4cm}p{4.2cm}}
 \toprule
-Exp. & Varía & Fijo & Configuraciones \\
+Experimento & Configuración & Fijo & Propósito \\
 \midrule
-1 & Filtro & $4000\times4000$, $3\times3$, 256 hilos & media, nitidez, laplaciano \\
-2 & Resolución & media $9\times9$, 256 hilos & 2000, 4000, 6000 \\
-3 & Máscara & media, $4000\times4000$, 256 hilos & $k=3, 9, 21$ \\
-4 & Hilos por bloque & media $9\times9$, $4000\times4000$ & 128, 256, 512 \\
+1. Filtro & media, nitidez y laplaciano $3\times3$ & $4000\times4000$, 256 hilos &
+  Comparar efectos y tiempos en CPU y CUDA \\
+2. Resolución & 2000, 4000 y 6000 & media $9\times9$, 256 hilos &
+  Ver cómo crece el tiempo en CPU y CUDA \\
+3. Máscara & media $k=3, 9, 21$ (9, 81 y 441 productos por píxel) & $4000\times4000$, 256 hilos &
+  Estudiar el trabajo por píxel en CPU y CUDA \\
+4. Hilos por bloque & 128, 256 y 512, si el dispositivo lo permite & media $9\times9$,
+  $4000\times4000$ & Comparar configuraciones CUDA \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{itemize}
-  \item \textbf{Orden por configuración}: primero la CPU (una ejecución de calentamiento
-        y 5 medidas seguidas), luego un calentamiento de la GPU de al menos 2\,s de trabajo
-        continuo y después las 5 repeticiones GPU seguidas. Los tiempos se guardan en
-        memoria y el CSV se escribe al final, para no dejar a la GPU sin trabajo entre
-        repeticiones.
-  \item \textbf{Por qué este orden}: en las corridas 1 y 2, CPU y GPU se alternaban en
-        cada repetición con un solo calentamiento GPU. Mientras la CPU calculaba, la GPU de
-        la laptop quedaba sin trabajo y bajaba de reloj y de enlace PCIe, así que la misma
-        configuración dio tiempos de kernel hasta 8 veces distintos
-        (sección~\ref{sec:limitaciones}). La CPU es estable (variación menor al 3\,\%), por lo
-        que medirla en bloque no altera sus resultados.
-  \item \textbf{Repeticiones}: 5 medidas por implementación y configuración. Cada
-        experimento mide sus propias configuraciones aunque coincidan con las de otro (media
-        $9\times9$, 4000, 256 hilos aparece en los experimentos 2, 3 y 4).
-  \item \textbf{Validación}: la salida de la última repetición GPU medida se compara con la
-        de la CPU (error absoluto máximo y medio, tolerancia $10^{-3}$).
-  \item \textbf{Estadísticos}: mediana como valor central; desviación estándar, mínimo y
-        máximo como variabilidad.
-  \item \textbf{CPU}: solo la llamada a \texttt{convolucion\_cpu}, con
-        \texttt{std::chrono::steady\_clock}.
-  \item \textbf{GPU}: eventos CUDA en el flujo por defecto. CPU$\to$GPU (imagen y máscara),
-        kernel y GPU$\to$CPU se miden entre eventos consecutivos y el total va del primer
-        al último evento. Se espera con \texttt{cudaEventSynchronize} antes de leer los
-        tiempos.
-  \item \textbf{Fuera de la medición}: lectura y escritura de archivos, preparación de
-        imágenes y máscaras, escritura del CSV y la reserva y liberación de memoria
-        (\texttt{cudaMalloc} y \texttt{cudaFree} quedan fuera de los eventos). La memoria del
-        host es paginable (\texttt{malloc}).
-  \item \textbf{Aceleración}: de cómputo $= T_{CPU}/T_{kernel}$; con transferencias
-        $= T_{CPU}/T_{total\,GPU}$, ambas con medianas.
-  \item \textbf{Registro}: \texttt{resultados/mediciones.csv}, una fila por implementación y
-        repetición con experimento, filtro, resolución, máscara, hilos por bloque, bloques,
-        repetición, tiempos y unidad (ms). \texttt{scripts/graficas.py} genera a partir de él
-        el resumen, las tablas y las gráficas.
-\end{itemize}
+Antes del experimento 4 el programa le pregunta a la GPU cuántos hilos por bloque acepta
+(\texttt{cudaDevAttrMaxThreadsPerBlock}) y salta cualquier configuración que pase ese límite.
+En este equipo el límite es de 1024 hilos, así que las tres se ejecutaron.
 
-% ───────────────────────────── 8 ─────────────────────────────
+Para cada configuración medimos primero la CPU, con una ejecución de calentamiento y 5
+repeticiones. Después calentamos la GPU durante al menos 2\,s seguidos y medimos sus 5
+repeticiones una tras otra. Los tiempos se guardan en memoria y el CSV se escribe al final. Al
+terminar comparamos la salida de la última repetición de la GPU con la de la CPU.
+
+Llegamos a este orden después de las primeras mediciones. En ellas alternábamos CPU y GPU en
+cada repetición y la GPU, que es de portátil, bajaba de frecuencia y de velocidad de enlace
+PCIe mientras esperaba a la CPU. El registro de \texttt{nvidia-smi} mostraba saltos entre los
+estados P8 y P0 y entre PCIe Gen~1 y Gen~4, y la misma configuración (media $3\times3$, 4000)
+llegó a dar 5.45\,ms de kernel en un experimento y 0.67\,ms en otro. Con el calentamiento
+actual se ve el efecto contrario: con media $9\times9$ en 4000 la primera llamada tarda 34.4\,ms
+y la última 2.78\,ms. Esas mediciones previas quedan en el repositorio
+(\texttt{mediciones\_corrida1.csv} y \texttt{mediciones\_corrida2.csv}) pero no se usan en
+el análisis.
+
+En la CPU se cronometra solo la llamada a \texttt{convolucion\_cpu} con
+\texttt{std::chrono::steady\_clock}. En la GPU usamos eventos CUDA para separar la copia
+CPU$\to$GPU (imagen y máscara), el kernel y la copia GPU$\to$CPU; el tiempo total va del primer
+evento al último y antes de leerlo se espera con \texttt{cudaEventSynchronize}. La lectura y
+escritura de archivos, la preparación de imágenes y máscaras, la escritura del CSV y la reserva
+de memoria (\texttt{cudaMalloc} y \texttt{cudaFree}) quedan fuera de la medición. La memoria
+del host es paginable.
+
+Para cada configuración reportamos la mediana y, como variabilidad, la desviación estándar, el
+mínimo y el máximo. La aceleración de cómputo es $T_{CPU}/T_{kernel}$ y la aceleración con
+transferencias es $T_{CPU}/T_{total\,GPU}$, las dos con medianas. Los registros originales están
+en \texttt{resultados/mediciones.csv}, con una fila por implementación y repetición
+(experimento, filtro, resolución, máscara, hilos, bloques, repetición, tiempos y unidad), y
+\texttt{scripts/graficas.py} genera desde ahí la tabla y las gráficas.
+
 \section{Validación}
 
 \subsection{Prueba manual}
-Se usa la matriz $5\times5$ y la máscara $3\times3$ de la figura 1 del enunciado. Los
-valores esperados se calcularon a mano; por ejemplo, para el píxel (1,1):
-$35(-2)+40(-1)+41(0)+40(-1)+40(1)+42(1)+42(0)+46(1)+50(2)=78$. En la esquina (0,0) solo
-cuatro vecinos están dentro de la imagen: $35(1)+40(1)+40(1)+40(2)=195$. CPU y GPU obtienen
+Usamos la matriz $5\times5$ y la máscara $3\times3$ de la figura 1 del enunciado y calculamos a
+mano algunos píxeles. Para el píxel (1,1):
+$35(-2)+40(-1)+41(0)+40(-1)+40(1)+42(1)+42(0)+46(1)+50(2)=78$. En la esquina (0,0) solo cuatro
+vecinos caen dentro de la imagen: $35(1)+40(1)+40(1)+40(2)=195$. La CPU y la GPU dan
 exactamente 78, 87 y 195 (\texttt{resultados/prueba.txt}).
 
-\subsection{Comparación numérica CPU--GPU}
-Se compara la salida en \texttt{float}, antes de convertirla a $[0,255]$, píxel a píxel:
-$e_{max}=\max_i |c_i-g_i|$ y $\bar e = \frac1n\sum_i |c_i-g_i|$.
+\subsection{Comparación CPU--GPU}
+Comparamos las salidas en \texttt{float}, antes de pasarlas a $[0,255]$, con el error absoluto
+máximo $e_{max}=\max_i |c_i-g_i|$ y el medio $\bar e = \frac1n\sum_i |c_i-g_i|$. La imagen de
+$1001\times777$ no es múltiplo de 256, así que con ella también se prueba el último bloque.
 
 \begin{table}[H]
 \centering
-\caption{Error absoluto CPU vs GPU (de \texttt{prueba.txt} y \texttt{medir\_consola.txt}).}
+\caption{Error absoluto CPU vs GPU (\texttt{prueba.txt} y \texttt{medir\_consola.txt}).}
 \begin{tabular}{llrr}
 \toprule
 Imagen & Máscara & $e_{max}$ & $\bar e$ \\
 \midrule
 $1001\times777$ aleatoria, 256 hilos & media $3\times3$ & $4.58\times10^{-5}$ & $2.96\times10^{-6}$ \\
  & media $9\times9$ & $4.58\times10^{-5}$ & $3.78\times10^{-6}$ \\
- & nitidez & 0 & 0 \\
- & laplaciano & 0 & 0 \\
+ & nitidez y laplaciano & 0 & 0 \\
 \midrule
 $4000\times4000$ & media $3\times3$ & $4.58\times10^{-5}$ & $3.04\times10^{-6}$ \\
  & media $9\times9$ (128, 256, 512 hilos) & $1.07\times10^{-4}$ & $5.21\times10^{-6}$ \\
  & media $21\times21$ & $1.07\times10^{-4}$ & $4.19\times10^{-6}$ \\
- & nitidez, laplaciano & 0 & 0 \\
+ & nitidez y laplaciano & 0 & 0 \\
 $2000\times2000$ & media $9\times9$ & $9.16\times10^{-5}$ & $5.21\times10^{-6}$ \\
 $6000\times6000$ & media $9\times9$ & $1.22\times10^{-4}$ & $5.19\times10^{-6}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-La imagen de $1001\times777$ no es múltiplo de 256 y valida el control de límites del último
-bloque. Con imágenes reales las 12 configuraciones de los experimentos se comparan antes de
-medir y todas quedan dentro de la tolerancia.
+Elegimos una tolerancia de $10^{-3}$ en valor absoluto. Con nitidez y laplaciano los
+coeficientes y los píxeles son enteros, las sumas son exactas en \texttt{float} y el error sale
+0. La media usa $1/k^2$, que no se puede representar exacto, y la diferencia viene del
+redondeo; lo más probable es que el compilador de CUDA junte multiplicación y suma en una sola
+operación (FMA) mientras la CPU redondea cada una por separado. Un error así es del orden del
+épsilon de \texttt{float} ($\approx1.2\times10^{-7}$) por valores de hasta 255, o sea entre
+$10^{-5}$ y $10^{-4}$, que es lo que medimos. La tolerancia deja margen sobre eso y es 500
+veces menor que 0.5, la diferencia mínima que podría cambiar un píxel al redondear. El error
+más grande que vimos, $1.22\times10^{-4}$, está 8 veces por debajo. Las 12 configuraciones de
+los experimentos quedan dentro de la tolerancia.
 
-\paragraph{Tolerancia: $10^{-3}$ en valor absoluto.} Nitidez y laplaciano tienen coeficientes
-enteros y entradas enteras, sus productos y sumas son exactos en \texttt{float} y el error es
-exactamente 0. La media usa $1/k^2$, que no es representable exactamente; la diferencia
-aparece por el redondeo de las operaciones en coma flotante, probablemente porque el
-compilador de CUDA contrae multiplicación y suma en una sola operación (FMA) mientras que la
-CPU las redondea por separado. Un error de este origen es del orden del épsilon de
-\texttt{float} ($\approx1.2\times10^{-7}$) por el valor acumulado ($\le255$), es decir, alrededor
-de $10^{-5}$ a $10^{-4}$, como se observa. La tolerancia $10^{-3}$ deja margen sobre ese orden y
-es 500 veces menor que 0.5, la mínima diferencia que podría cambiar un píxel al redondear a
-entero; por debajo de ella, CPU y GPU producen la misma imagen visible salvo empates exactos
-en el redondeo. El mayor error observado ($1.22\times10^{-4}$) está 8 veces por debajo de la
-tolerancia.
-
-\subsection{Verificación independiente de rangos}
-\texttt{scripts/figuras\_filtros.py} repite la convolución con una implementación propia en
-\texttt{numpy} (extensión con ceros) para calcular los rangos de la tabla~\ref{tab:rangos}.
-Coincide con los valores que reporta la implementación en C sobre las mismas imágenes.
-
-% ───────────────────────────── 9 ─────────────────────────────
 \section{Imágenes representativas}\label{sec:imagenes}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.92\textwidth]{figura_filtros_perro.png}
-\caption{Filtros sobre \texttt{ejemplo\_perro.jpg} en grises ($800\times1200$).}
-\end{figure}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.92\textwidth]{figura_filtros_imagen.png}
-\caption{Filtros sobre un recorte central de $500\times500$ de la imagen de 2000.}
+\includegraphics[width=0.85\textwidth]{figura_filtros_imagen.png}
+\caption{Los filtros aplicados a la imagen de 2000 del experimento (recorte central de
+$500\times500$).}
 \end{figure}
 
 \begin{table}[H]
 \centering
-\caption{Rango de la salida en \texttt{float} antes de convertir a $[0,255]$
+\caption{Rango de la salida en \texttt{float} antes de pasar a $[0,255]$, imagen de 2000
 (\texttt{resultados/rangos\_filtros.csv}).}\label{tab:rangos}
-\begin{tabular}{llrrrr}
+\begin{tabular}{lrrrr}
 \toprule
-Imagen & Filtro & Mín. & Máx. & \% $<0$ & \% $>255$ \\
+Filtro & Mín. & Máx. & \% $<0$ & \% $>255$ \\
 \midrule
-imagen 2000 & media 3/9/21 & 9.4 / 13.1 / 13.1 & 244.0 / 233.7 / 229.9 & 0 & 0 \\
- & nitidez & $-91.0$ & 724.0 & 3.9 & 2.4 \\
- & laplaciano & $-488.0$ & 114.0 & 49.0 & 0 \\
-ejemplo\_perro & nitidez & $-209.0$ & 583.0 & 0.4 & 0.2 \\
- & laplaciano & $-389.0$ & 229.0 & 48.3 & 0 \\
+Media $3\times3$ & 9.4 & 244.0 & 0 & 0 \\
+Media $9\times9$ & 13.1 & 233.7 & 0 & 0 \\
+Media $21\times21$ & 13.1 & 229.9 & 0 & 0 \\
+Nitidez & $-91.0$ & 724.0 & 3.9 & 2.4 \\
+Laplaciano & $-488.0$ & 114.0 & 49.0 & 0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-La media nunca sale de $[0,255]$ y la conversión no la altera. La nitidez supera el rango en
-ambos sentidos en pocos píxeles (bordes muy marcados) y el recorte los satura. En el
-laplaciano casi la mitad de los píxeles son negativos: el recorte a 0 los convierte en negro y
-solo quedan visibles los bordes del lado positivo, por eso la imagen se ve casi negra. Es un
-efecto de la conversión elegida, no del cálculo, que se validó antes de convertir.
+La media nunca se sale de $[0,255]$, así que la conversión no le afecta. La nitidez se sale
+por los dos lados en pocos píxeles, en los bordes más marcados, y ahí el recorte la satura. Con
+el laplaciano casi la mitad de los píxeles quedan negativos y al recortarlos a 0 se vuelven
+negros; por eso la imagen se ve casi toda negra y solo aparecen los bordes del lado positivo.
+Es un efecto de la conversión y no del cálculo, que ya se validó antes. Los rangos los
+calculamos aparte con \texttt{numpy} (\texttt{scripts/figuras\_filtros.py}) y coinciden con los
+del programa.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\textwidth]{figura_bordes.png}
-\caption{Esquina de la imagen de 2000: la extensión con ceros oscurece una franja de
-$\lfloor k/2\rfloor$ píxeles (1, 4 y 10 para $k=3,9,21$), porque los vecinos fuera de la imagen
-aportan 0 al promedio.}
+\includegraphics[width=0.65\textwidth]{figura_bordes.png}
+\caption{Esquina de la imagen de 2000: con extensión con ceros aparece una franja oscura de
+$\lfloor k/2\rfloor$ píxeles (1, 4 y 10 para $k=3,9,21$).}
 \end{figure}
 
-% ───────────────────────────── 10 ─────────────────────────────
 \section{Resultados}
 
-\subsection{Corrida 1: tiempos con dos niveles de rendimiento}
+Revisamos el registro de \texttt{nvidia-smi} (\texttt{resultados/gpu\_estado.csv}) con la hora
+de cada bloque GPU que imprime el programa: las 12 configuraciones se midieron con la GPU en P0,
+a 2535--2550\,MHz y con PCIe Gen~4. La temperatura estuvo entre 38 y 59\,$^\circ$C. Antes de empezar la GPU estaba en reposo
+(P8, 210\,MHz, 3.3\,W) y Ollama, que usa la GPU en ese equipo, estuvo apagado durante toda la
+medición.
 
-En la primera corrida (\texttt{resultados/mediciones\_corrida1.csv}) la CPU fue estable
-(desviación estándar entre 1 y 3\,\% de la mediana), pero los tiempos de GPU de una misma
-configuración tomaron valores discretos muy distintos. La figura~\ref{fig:rep1} muestra las 60
-repeticiones GPU en orden de ejecución:
+Las mediciones son muy estables. La desviación del kernel es, en la mediana de las 12
+configuraciones, el 0.04\,\% de su media (0.49\,\% en el peor caso); la del tiempo total GPU,
+el 0.27\,\%, y la de la CPU, el 0.79\,\%. Las configuraciones que se repiten en varios
+experimentos dan casi lo mismo: media $9\times9$ en 4000 con 256 hilos tarda 2.767, 2.780 y
+2.780\,ms de kernel en los experimentos 2, 3 y 4.
 
-\begin{itemize}
-  \item La copia CPU$\to$GPU alterna entre dos niveles, $\approx3.2$ y $\approx1.6$ GB/s,
-        exactamente la mitad, sin valores intermedios, y en todos los experimentos.
-  \item El kernel también cambia por escalones: media $9\times9$ en 4000 tarda 11.7, 13.0,
-        19.7, 26.1 o 33.5\,ms con el mismo cálculo, y valores como 33.51 y 26.07\,ms se repiten
-        exactamente varias veces.
-  \item Al mismo tiempo la CPU no cambia, por lo que no es otro proceso compitiendo por la
-        CPU: el cambio está en la GPU o en el bus PCIe.
-\end{itemize}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\textwidth]{grafica_repeticiones_corrida1.png}
-\caption{Corrida 1: cada repetición GPU en orden de ejecución.}\label{fig:rep1}
-\end{figure}
-
-Valores exactos que se repiten y una relación exacta de 2 en el ancho de banda son
-compatibles con cambios de estado de energía de la GPU portátil (frecuencia de reloj y
-velocidad del enlace PCIe), que no se registraron en esa corrida. Por eso se repitió la medición
-registrando el estado de la GPU con \texttt{nvidia-smi} (\texttt{resultados/gpu\_estado.csv}).
-\pendiente{confirmar o descartar con gpu\_estado.csv de la corrida 2}
-
-Consecuencias en la corrida 1: en el experimento 1 el kernel de la media $3\times3$ aparece 2.3 veces más
-lento que el de nitidez y laplaciano porque 3 de sus 5 repeticiones cayeron en el nivel lento (en el
-experimento 3 la misma configuración da 5.45\,ms en las 5); y en el experimento 4 la diferencia
-entre configuraciones de hilos es menor que la diferencia entre niveles, por lo que no permite
-elegir una. La tabla completa de la corrida 1 está en el anexo~\ref{sec:anexo}.
-
-\subsection{Corrida 2}
-
-\existeresultado{tabla_resumen.tex}{
 \begin{table}[H]
 \centering
 \small
-\caption{Corrida 2: medianas de 5 repeticiones y variabilidad.}
+\caption{Medianas de 5 repeticiones. Tiempos en ms; $\sigma$: desviación estándar; Acel.:
+aceleración de cómputo / con transferencias; \% transf.: porcentaje del tiempo GPU en copias
+(mediana por repetición).}\label{tab:resultados}
 \resizebox{\textwidth}{!}{\tabla{tabla_resumen.tex}}
 \end{table}
-\begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{grafica_repeticiones.png}
-\caption{Corrida 2: cada repetición GPU en orden de ejecución.}\end{figure}
-\begin{figure}[H]\centering
+
+\begin{figure}[H]
+\centering
 \includegraphics[width=0.49\textwidth]{grafica_exp1_filtros.png}
 \includegraphics[width=0.49\textwidth]{grafica_exp2_resolucion.png}
 \includegraphics[width=0.49\textwidth]{grafica_exp3_mascara.png}
-\caption{Corrida 2: CPU, kernel y total GPU por experimento (escala logarítmica).}\end{figure}
-\begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{grafica_exp4_hilos.png}
-\caption{Corrida 2: hilos por bloque.}\end{figure}
-\begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{grafica_speedup.png}
-\caption{Corrida 2: aceleración de cómputo y con transferencias.}\end{figure}
-\begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{grafica_gpu_desglose.png}
-\caption{Corrida 2: proporción del tiempo GPU.}\end{figure}
-}{\pendiente{tabla y gráficas de la corrida 2: ejecutar \texttt{python3 scripts/graficas.py}}}
+\caption{Tiempos de CPU, kernel y total GPU en los experimentos de filtro, resolución y
+máscara.}\label{fig:experimentos}
+\end{figure}
 
-% ───────────────────────────── 11 ─────────────────────────────
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{grafica_exp4_hilos.png}
+\caption{Kernel por repetición y reparto del tiempo GPU según los hilos por bloque.}\label{fig:hilos}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{grafica_gpu_desglose.png}
+\caption{Reparto del tiempo GPU entre copias y kernel.}\label{fig:desglose}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{grafica_speedup.png}
+\caption{Aceleración de cómputo y con transferencias.}\label{fig:aceleracion}
+\end{figure}
+
 \section{Análisis}
 
-\subsection{¿Cómo cambia el tiempo con la resolución y el tamaño de máscara?}
+\subsection{¿Cómo cambia el tiempo con la resolución y el tamaño de la máscara?}
 
-\textbf{CPU.} El trabajo es $n\cdot k^2$ multiplicaciones y sumas, y el tiempo de CPU lo
-sigue de cerca. Resolución (media $9\times9$): 263.9, 1073.6 y 2420.1\,ms para 2000, 4000 y
-6000; con 4 y 9 veces más píxeles, el tiempo crece 4.07 y 9.17 veces. Máscara (4000): 153.0,
-1092.6 y 6781.7\,ms para $k=3, 9, 21$; con $k^2$ 9 y 49 veces mayor, el tiempo crece 7.1 y
-44.3 veces. El costo por operación queda entre 0.82 y 1.10\,ns en todas las configuraciones
-(corrida 1, en la que la CPU fue estable). El tipo de filtro no cambia el tiempo con la misma
-máscara: 153.6, 158.8 y 155.9\,ms para media, nitidez y laplaciano $3\times3$, diferencias del
-orden de su desviación estándar (3.2--4.7\,ms).
+En la CPU el trabajo es de $n\cdot k^2$ multiplicaciones y sumas, y el tiempo lo sigue de cerca.
+Con media $9\times9$ pasa de 278.3 a 1084.4 y a 2376.0\,ms para 2000, 4000 y 6000: con 4 y 9
+veces más píxeles crece 3.9 y 8.5 veces. En la imagen de 4000 la máscara lo lleva de 157.3 a
+1063.6 y a 6675.3\,ms para $k=3$, 9 y 21; ahí $k^2$ crece 9 y 49 veces y el tiempo 6.8 y 42.4.
+Cada producto cuesta entre 0.82 y 1.11\,ns. Con $3\times3$ sale un poco más caro, seguramente
+porque recorrer la imagen y escribir la salida pesa más cuando solo hay 9 productos por píxel.
 
-\textbf{GPU.} \pendiente{con la corrida 2: crecimiento del kernel y de las transferencias con
-$n$ y con $k^2$}. Las transferencias dependen solo de $n$ (no de $k$), mientras que el kernel
-depende de $n\cdot k^2$.
+En la GPU hay que separar copias y kernel. Las copias solo dependen de la resolución: la de
+CPU$\to$GPU tarda 1.32, 5.31 y 11.89\,ms, crece igual que los píxeles y con las tres máscaras
+se queda en 5.30\,ms. El kernel también crece como $n$ (0.695, 2.767 y 6.250\,ms), pero con la
+máscara no se comporta igual en todo el rango. De $3\times3$ a $9\times9$ hay 9 veces más
+productos y el kernel solo tarda 4.4 veces más (de 0.638 a 2.780\,ms); de $9\times9$ a
+$21\times21$ hay 5.4 veces más y tarda 5.3 veces más (14.82\,ms). Por producto, el kernel tarda
+0.0044\,ns con $3\times3$ y 0.0021\,ns con las máscaras más grandes. Nuestra explicación es que
+con $3\times3$ hay tan poco cálculo que manda el acceso a memoria: leer y escribir 64\,MB cada
+uno en 0.638\,ms equivale a unos 200\,GB/s. No lo comprobamos con un perfilador.
+
+El tipo de filtro no cambia el tiempo si la máscara es del mismo tamaño. En la CPU, media,
+nitidez y laplaciano tardan 159.2, 160.2 y 158.1\,ms, y en la GPU 0.638, 0.642 y 0.637\,ms; las
+diferencias son del orden de la variación entre repeticiones.
 
 \subsection{¿Qué proporción del tiempo GPU corresponde a transferencias?}
 
-En la corrida 1, calculando el porcentaje en cada repetición, las transferencias son entre
-86 y 88\,\% del tiempo GPU con máscaras $3\times3$, entre 69 y 81\,\% con $9\times9$ en todas
-las resoluciones, y entre 21 y 35\,\% con $21\times21$. Con $3\times3$ la proporción casi no
-cambia entre los dos niveles de rendimiento (86.2\,\% en el lento y 87.8\,\% en el rápido)
-porque copias y kernel se ralentizan juntos. Con poco trabajo por
-píxel la GPU pasa la mayor parte del tiempo copiando datos; solo con la máscara $21\times21$
-el cómputo domina. \pendiente{confirmar con la corrida 2}
+Mucha, salvo con la máscara grande. Calculando el porcentaje en cada repetición, las copias
+son entre el 94.2 y el 94.5\,\% del tiempo GPU con $3\times3$, entre el 78.6 y el 79.2\,\% con
+$9\times9$ (en las tres resoluciones y con los tres valores de hilos) y entre el 41.3 y el
+43.4\,\% con $21\times21$ (figura~\ref{fig:desglose}). Con la resolución el porcentaje no se
+mueve porque copias y kernel crecen al mismo ritmo. Con la máscara baja, porque se copia lo
+mismo y el kernel tiene más trabajo. Solo con $21\times21$ el kernel tarda más que las dos
+copias juntas (14.82 frente a 10.97\,ms).
+
+\subsection{Aceleración}
+
+La aceleración de cómputo es de unas 250 veces con $3\times3$, entre 380 y 400 con $9\times9$ y
+450 con $21\times21$. Sube con $k$, probablemente porque con $3\times3$ el kernel está limitado
+por la memoria y no aprovecha toda la capacidad de cálculo de la GPU. Con la resolución baja un
+poco (400, 392 y 380) porque la CPU se vuelve algo más eficiente por producto en las imágenes
+grandes (de 0.86 a 0.82\,ns), mientras el kernel se mantiene en 0.0021\,ns.
+
+Cuando se suman las copias el panorama cambia: unas 14 veces con $3\times3$, entre 81 y 84 con
+$9\times9$ y 259 con $21\times21$ (figura~\ref{fig:aceleracion}). Con $3\times3$ las copias se
+llevan casi toda la ganancia y la aceleración cae unas 17 veces; con $21\times21$ cae menos de
+la mitad. En este equipo, mandar a la GPU un solo filtro pequeño sobre una imagen que está en
+la memoria de la CPU aprovecha poco la GPU; cuanto más trabajo hay por píxel, más compensa.
 
 \subsection{¿Qué configuración de hilos por bloque es mejor y qué variabilidad presenta?}
 
-En la corrida 1 los kernels de 128, 256 y 512 hilos tienen medianas de 18.8, 20.7 y
-26.2\,ms, pero cada configuración va de $\approx12$ a $\approx34$\,ms entre repeticiones por los
-cambios de nivel: la variabilidad supera a la diferencia entre configuraciones y no se puede
-concluir cuál es mejor. \pendiente{corrida 2: mediana, desviación y rango de cada configuración}
+Con 128, 256 y 512 hilos el kernel tarda 2.782, 2.780 y 2.803\,ms de mediana, con desviaciones
+de 0.0006, 0.0013 y 0.0006\,ms y rangos de 2.7816--2.7832, 2.7802--2.7832 y 2.8017--2.8030\,ms.
+128 y 256 son prácticamente iguales: sus rangos se cruzan. Con 512 el kernel es un 0.8\,\% más
+lento, unos 22\,$\mu$s, y como sus cinco repeticiones quedan por encima de todas las demás, la
+diferencia es real aunque pequeña. En el tiempo total no se nota (13.09, 13.14 y 13.10\,ms)
+porque lo dominan las copias. La mejor mediana es la de 256 hilos, empatada en la práctica con
+128. No sabemos por qué 512 es algo más lento; podría tener que ver con la ocupación de los
+multiprocesadores o con cómo se reparten los bloques, pero habría que comprobarlo con un
+perfilador como Nsight Compute.
 
 \subsection{¿Qué confirma o contradice las expectativas?}
 
-\begin{itemize}
-  \item \textbf{Esperado y confirmado}: el tiempo de CPU es proporcional a $n\cdot k^2$; el
-        tipo de filtro no influye con la misma máscara; la GPU calcula el mismo resultado que
-        la CPU dentro de la tolerancia.
-  \item \textbf{Esperado y confirmado}: las transferencias limitan la aceleración real con
-        máscaras pequeñas; la aceleración con transferencias es muy inferior a la de
-        cómputo (corrida 1: $\approx3.5\times$ frente a $\approx29\times$ con $3\times3$).
-  \item \textbf{No esperado}: tiempos de GPU con dos niveles en la corrida 1. La evidencia
-        (figura~\ref{fig:rep1}) son valores discretos repetidos y un ancho de banda que cae
-        exactamente a la mitad, con la CPU estable.
-  \item \textbf{No esperado}: el ancho de banda CPU$\to$GPU (3.2\,GB/s en el mejor caso) es
-        bajo para PCIe; es coherente con copiar desde memoria paginable, que obliga al driver
-        a pasar por un búfer intermedio \cite{cudaguide}. No se probó memoria fija (\texttt{cudaMallocHost}).
-  \item \pendiente{expectativas sobre hilos por bloque y escalado del kernel, con la corrida 2}
-\end{itemize}
+Esperábamos que el tiempo de la CPU fuera proporcional a $n\cdot k^2$, que el tipo de filtro no
+influyera con una máscara del mismo tamaño y que la GPU diera el mismo resultado que la CPU;
+las tres cosas se cumplieron. También esperábamos que las copias crecieran con $n$ y no
+dependieran de $k$, y que pesaran mucho con máscaras pequeñas: con $3\times3$ la aceleración
+pasa de unas 250 veces a unas 14 al incluirlas.
 
-% ───────────────────────────── 12 ─────────────────────────────
-\section{Limitaciones}\label{sec:limitaciones}
+Lo que no salió como esperábamos fue el kernel con máscaras pequeñas. Suponíamos que crecería
+como $k^2$ y de $3\times3$ a $9\times9$ creció menos de la mitad de lo previsto, lo que apunta
+a que con $3\times3$ el límite es la memoria y no el cálculo. Con los hilos por bloque
+esperábamos diferencias pequeñas, porque 128, 256 y 512 son múltiplos de 32, el tamaño de un
+warp \cite{cudaguide}, y así fue: la mayor es de 0.8\,\%.
 
-\begin{itemize}
-  \item Un solo equipo (portátil) y las configuraciones listadas; las conclusiones no se
-        extienden a otras GPU, tamaños o configuraciones.
-  \item GPU portátil con gestión de energía; los estados de la GPU no se controlaron en la
-        corrida 1.
-  \item 5 repeticiones por configuración: suficiente para la mediana, pero la desviación
-        estándar con 5 muestras es poco precisa.
-  \item Memoria del host paginable y reserva fuera de la medición: el tiempo total no incluye
-        \texttt{cudaMalloc}/\texttt{cudaFree}.
-  \item Kernel básico en memoria global, sin memoria compartida ni constante; la máscara se
-        lee de memoria global en cada multiplicación.
-  \item Conversión a $[0,255]$ por recorte: oculta la mitad negativa del laplaciano.
-\end{itemize}
+Tampoco esperábamos que la gestión de energía de la GPU portátil influyera tanto. Sin un
+calentamiento largo, la misma configuración varió hasta 8 veces (sección~\ref{sec:metodologia});
+con el protocolo final la variación del kernel bajó a 0.04\,\%. La copia CPU$\to$GPU llega a
+11.5--12.2\,GB/s con el enlace en Gen~4, aunque copiar desde memoria paginable obliga al
+driver a pasar por un búfer intermedio \cite{cudaguide}; no probamos con memoria fija
+(\texttt{cudaMallocHost}).
 
-% ───────────────────────────── 13 ─────────────────────────────
+\section{Limitaciones}
+
+Todo se midió en un solo portátil y con las configuraciones de la tabla, así que las
+conclusiones no se pueden extender a otras GPU o tamaños. La GPU tiene gestión de energía y no
+fijamos sus frecuencias; lo compensamos con el calentamiento y comprobamos con
+\texttt{nvidia-smi} que todas las mediciones se hicieron en P0. Las aceleraciones comparan la
+versión secuencial, que usa un solo núcleo de la CPU, con toda la GPU, no con una versión
+paralela en CPU. Con 5 repeticiones la mediana es confiable, pero la desviación estándar es
+poco precisa. El tiempo total no incluye la reserva de memoria y el host usa memoria paginable.
+El kernel es básico: trabaja en memoria global, sin memoria compartida ni constante, y lee la
+máscara de memoria global en cada producto. Por último, convertir a $[0,255]$ recortando
+esconde la mitad negativa del laplaciano.
+
 \section{Conclusiones}
 
-\begin{itemize}
-  \item Las implementaciones CPU y CUDA producen el mismo resultado numérico: error 0 con
-        coeficientes enteros y como máximo $1.22\times10^{-4}$ con la media, por debajo de la
-        tolerancia de $10^{-3}$.
-  \item En la CPU el tiempo crece en proporción a $n\cdot k^2$.
-  \item En este equipo las transferencias CPU--GPU dominan el tiempo GPU con máscaras
-        pequeñas (alrededor del 87\,\% con $3\times3$); solo con $21\times21$ domina el cómputo.
-  \item \pendiente{conclusiones de escalado GPU, aceleraciones e hilos con la corrida 2}
-\end{itemize}
+Las versiones en CPU y CUDA dan el mismo resultado: el error es 0 con coeficientes enteros y
+como mucho $1.22\times10^{-4}$ con la media, por debajo de la tolerancia de $10^{-3}$.
 
-% ───────────────────────────── 14 ─────────────────────────────
+En la CPU el tiempo crece en proporción a $n\cdot k^2$. En la GPU las copias crecen con la
+resolución y no dependen de la máscara, y el kernel crece con $n$ y, desde $9\times9$, con
+$k^2$; con $3\times3$ parece limitado por el acceso a memoria.
+
+Las copias se llevan la mayor parte del tiempo GPU con máscaras pequeñas (94\,\% con
+$3\times3$ y 79\,\% con $9\times9$) y solo con $21\times21$ domina el cálculo. Por eso la
+aceleración de cómputo, de 250 a 450 veces, se queda en 14, 82 y 259 veces cuando se incluyen
+las copias: lo que se gana de verdad depende del trabajo por píxel.
+
+Los hilos por bloque casi no influyen. 256 y 128 dan lo mismo y 512 es un 0.8\,\% más lento.
+
+En una GPU portátil hay que calentar antes de medir. Sin hacerlo, la misma configuración varió
+hasta 8 veces; con 2\,s de calentamiento y las repeticiones seguidas, la variación del kernel
+bajó a 0.04\,\%.
+
+Estas conclusiones valen para este equipo y las configuraciones que probamos.
+
 \section{Contribuciones}
 
 \begin{table}[H]
@@ -567,65 +542,45 @@ concluir cuál es mejor. \pendiente{corrida 2: mediana, desviación y rango de c
 Integrante & Contribución \\
 \midrule
 Michael Lata (Bloque 1) & Lectura y escritura PGM, máscaras, convolución secuencial, prueba
-  manual, preparación de imágenes, información del equipo y ejecución de las mediciones en su
-  equipo. \\
-Jordi Romero (Bloque 2) & Kernel CUDA, reserva y transferencias CPU--GPU, medición con eventos
-  CUDA, validación CPU vs GPU con la imagen $1001\times777$. \\
-Andrés Morocho (Bloque 3) & Experimentos y protocolo de medición, CSV, validación por
-  configuración, procesamiento estadístico, gráficas, figuras de filtros, informe y
+  manual, preparación de imágenes, datos del equipo y ejecución de las mediciones en su
+  portátil. \\
+Jordi Romero (Bloque 2) & Kernel CUDA, reserva y copias CPU--GPU, medición con eventos CUDA y
+  validación CPU vs GPU con la imagen de $1001\times777$. \\
+Andres Morocho (Bloque 3) & Diseño de los experimentos y del protocolo de medición, CSV,
+  validación por configuración, estadística, gráficas, figuras de filtros, informe y
   presentación. \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% ───────────────────────────── 15 ─────────────────────────────
 \section{Reproducibilidad}
 
-Repositorio: \repo, rama \texttt{bloque-3-experimentos}, commit \pendiente{hash}.
+Repositorio: \repo, commit \pendiente{hash}.
 
 \begin{lstlisting}[language=bash]
 cmake -S . -B build && cmake --build build -j
 python3 scripts/preparar_imagenes.py datos/original.jpg
 ./build/convolucion probar          # prueba manual y validación GPU
 ./build/convolucion medir           # resultados/mediciones.csv
-bash scripts/info_equipo.sh         # resultados/equipo.txt
-python3 scripts/graficas.py         # resumen, tabla y gráficas
-python3 scripts/graficas.py resultados/mediciones_corrida1.csv _corrida1
-python3 scripts/figuras_filtros.py  # imágenes representativas y rangos
+python3 scripts/graficas.py         # tabla y gráficas
+python3 scripts/figuras_filtros.py  # imágenes de los filtros y rangos
 \end{lstlisting}
 
-% ───────────────────────────── Firmas ─────────────────────────────
 \section*{Firmas}
 \addcontentsline{toc}{section}{Firmas}
 \vspace{2cm}
 \noindent
 \begin{tabular}{ccc}
 \rule{4.3cm}{0.4pt} & \rule{4.3cm}{0.4pt} & \rule{4.3cm}{0.4pt} \\
-Michael Lata & Jordi Romero & Kevin Andrés Morocho Remache \\
+Michael Lata & Jordi Romero & Andres Morocho \\
 \end{tabular}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%     FIN   TEXTO     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%  INICIO REFERENCIAS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 \newpage
 \bibliographystyle{plain}
 \bibliography{biblist}
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%   FIN  REFERENCIAS  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-\appendix
-\section{Tabla de la corrida 1}\label{sec:anexo}
-\begin{table}[H]
-\centering
-\caption{Corrida 1: medianas de 5 repeticiones (tiempos con dos niveles de rendimiento GPU).}
-\resizebox{\textwidth}{!}{\tabla{tabla_resumen_corrida1.tex}}
-\end{table}
 
 \end{document}
