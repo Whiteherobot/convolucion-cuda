@@ -2,17 +2,21 @@
 """Procesa mediciones.csv y genera tablas y gráficas del informe. Bloque 3 - Andrés Morocho
 
 Uso:
-    python3 scripts/graficas.py [ruta_csv]        (por defecto resultados/mediciones.csv)
+    python3 scripts/graficas.py [ruta_csv] [sufijo]
+    (por defecto resultados/mediciones.csv y sin sufijo; con sufijo "_corrida1" cada archivo
+    de salida se llama p.ej. resumen_corrida1.csv, así no se pisan los de otra corrida)
 
 Salida (en resultados/):
     resumen.csv                 una fila por configuración: medianas, variabilidad,
                                 aceleraciones y % de transferencias
+    tabla_resumen.tex           la misma tabla en LaTeX (la incluye informe/informe.tex)
     grafica_exp1_filtros.png    Exp 1: CPU, kernel y GPU total por tipo de filtro
     grafica_exp2_resolucion.png Exp 2: idem por resolución
     grafica_exp3_mascara.png    Exp 3: idem por tamaño de máscara
     grafica_exp4_hilos.png      Exp 4: distribución del kernel y desglose por hilos/bloque
     grafica_speedup.png         aceleración de cómputo y con transferencias
     grafica_gpu_desglose.png    % del tiempo GPU en H2D, kernel y D2H
+    grafica_repeticiones.png    cada repetición GPU en orden de ejecución (estabilidad)
 
 Definiciones:
     mediana de las 5 repeticiones; variabilidad = desviación estándar y rango (máx - mín)
@@ -31,6 +35,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 SALIDA = "resultados"
+SUFIJO = ""   # se fija en main() con el segundo argumento
 COLOR = {"cpu": "#4C72B0", "kernel": "#C44E52", "total": "#DD8452",
          "h2d": "#55A868", "d2h": "#8172B2"}
 plt.rcParams.update({"figure.dpi": 150, "font.size": 10, "axes.titlesize": 11,
@@ -99,14 +104,51 @@ def resumir(filas):
                 c[campo[:-3]] = estadisticos([f[campo] for f in gpu])
             c["acel_computo"] = c["cpu"]["mediana"] / c["kernel"]["mediana"]
             c["acel_total"] = c["cpu"]["mediana"] / c["total"]["mediana"]
-            c["pct_transf"] = 100 * (c["h2d"]["mediana"] + c["d2h"]["mediana"]) / c["total"]["mediana"]
+            # Porcentajes por repetición y después la mediana: combinar medianas de
+            # componentes que vienen de repeticiones distintas puede dar un % que no ocurrió.
+            pct = {campo: [100 * f[campo] / f["total_ms"] for f in gpu]
+                   for campo in ("h2d_ms", "kernel_ms", "d2h_ms")}
+            transf = [a + b for a, b in zip(pct["h2d_ms"], pct["d2h_ms"])]
+            c["pct_transf"] = statistics.median(transf)
+            c["pct_transf_min"], c["pct_transf_max"] = min(transf), max(transf)
+            c["pct_partes"] = {campo[:-3]: statistics.median(v) for campo, v in pct.items()}
             c["muestras_kernel"] = [f["kernel_ms"] for f in gpu]
             resumen[exp].append(c)
     return resumen
 
 
+def con_sufijo(nombre):
+    base, ext = os.path.splitext(nombre)
+    return os.path.join(SALIDA, base + SUFIJO + ext)
+
+
+def guardar_tabla_latex(resumen):
+    """Tabla para el informe: medianas (ms), desviación, aceleraciones y % de transferencias."""
+    ruta = con_sufijo("tabla_resumen.tex")
+    nombres = {1: "Filtro", 2: "Resolución", 3: "Máscara", 4: "Hilos/bloque"}
+    with open(ruta, "w", encoding="utf-8") as f:
+        f.write("% Generado por scripts/graficas.py; no editar a mano.\n")
+        f.write("\\begin{tabular}{llrrrrrrrr}\n\\toprule\n")
+        f.write("Exp. & Valor & CPU & $\\sigma_{CPU}$ & CPU$\\to$GPU & Kernel & $\\sigma_{K}$"
+                " & Total GPU & Acel. & \\% transf. \\\\\n")
+        f.write(" & & (ms) & (ms) & (ms) & (ms) & (ms) & (ms) & cómp./total & \\\\\n\\midrule\n")
+        for exp, confs in resumen.items():
+            for i, c in enumerate(confs):
+                etiqueta_exp = f"{exp} ({nombres[exp]})" if i == 0 else ""
+                f.write(f"{etiqueta_exp} & {c['variable'].replace('x', '$\\times$')} & "
+                        f"{c['cpu']['mediana']:.1f} & {c['cpu']['desv']:.1f} & "
+                        f"{c['h2d']['mediana']:.2f} & {c['kernel']['mediana']:.2f} & "
+                        f"{c['kernel']['desv']:.2f} & {c['total']['mediana']:.2f} & "
+                        f"{c['acel_computo']:.1f} / {c['acel_total']:.1f} & "
+                        f"{c['pct_transf']:.1f} \\\\\n")
+            if confs and exp != 4:
+                f.write("\\midrule\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+    print(f"  Guardado: {ruta}")
+
+
 def guardar_resumen(resumen):
-    ruta = os.path.join(SALIDA, "resumen.csv")
+    ruta = con_sufijo("resumen.csv")
     cols = ["experimento", "variable", "filtro", "resolucion", "mascara", "hilos", "bloques"]
     tiempos = ["cpu", "h2d", "kernel", "d2h", "total"]
     with open(ruta, "w", newline="", encoding="utf-8") as f:
@@ -115,7 +157,8 @@ def guardar_resumen(resumen):
         for t in tiempos:
             cab += [f"{t}_mediana_ms", f"{t}_desv_ms", f"{t}_min_ms", f"{t}_max_ms"]
         cab += ["n_repeticiones", "aceleracion_computo", "aceleracion_con_transferencias",
-                "porcentaje_transferencias"]
+                "porcentaje_transferencias", "porcentaje_transferencias_min",
+                "porcentaje_transferencias_max"]
         w.writerow(cab)
         for exp in resumen.values():
             for c in exp:
@@ -123,7 +166,8 @@ def guardar_resumen(resumen):
                 for t in tiempos:
                     fila += [f"{c[t][s]:.4f}" for s in ("mediana", "desv", "min", "max")]
                 fila += [c["total"]["n"], f"{c['acel_computo']:.2f}",
-                         f"{c['acel_total']:.2f}", f"{c['pct_transf']:.1f}"]
+                         f"{c['acel_total']:.2f}", f"{c['pct_transf']:.1f}",
+                         f"{c['pct_transf_min']:.1f}", f"{c['pct_transf_max']:.1f}"]
                 w.writerow(fila)
     print(f"  Guardado: {ruta}")
 
@@ -145,7 +189,7 @@ def imprimir_resumen(resumen):
 # ── Gráficas ──────────────────────────────────────────────────────────────────
 
 def guardar(fig, nombre):
-    ruta = os.path.join(SALIDA, nombre)
+    ruta = con_sufijo(nombre)
     fig.tight_layout()
     fig.savefig(ruta, bbox_inches="tight")
     plt.close(fig)
@@ -246,38 +290,81 @@ def grafica_speedup(resumen):
 def grafica_desglose(resumen):
     pares = todas_las_configuraciones(resumen)
     x = np.arange(len(pares))
-    tot = np.array([c["h2d"]["mediana"] + c["kernel"]["mediana"] + c["d2h"]["mediana"]
-                    for _, c in pares])
-    h2d = 100 * np.array([c["h2d"]["mediana"] for _, c in pares]) / tot
-    ker = 100 * np.array([c["kernel"]["mediana"] for _, c in pares]) / tot
-    d2h = 100 * np.array([c["d2h"]["mediana"] for _, c in pares]) / tot
+    # Mediana del % de cada parte por repetición, reescalada para que la barra sume 100.
+    partes = np.array([[c["pct_partes"][p] for p in ("h2d", "kernel", "d2h")] for _, c in pares])
+    partes = 100 * partes / partes.sum(axis=1, keepdims=True)
+    h2d, ker, d2h = partes[:, 0], partes[:, 1], partes[:, 2]
     fig, ax = plt.subplots(figsize=(11, 4.5))
     ax.bar(x, h2d, 0.6, color=COLOR["h2d"], label="CPU→GPU")
     ax.bar(x, ker, 0.6, bottom=h2d, color=COLOR["kernel"], label="Kernel")
     ax.bar(x, d2h, 0.6, bottom=h2d + ker, color=COLOR["d2h"], label="GPU→CPU")
-    for xi, p in zip(x, h2d + d2h):
-        ax.text(xi, 101, f"{p:.0f}%", ha="center", fontsize=7)
+    for xi, (_, c) in zip(x, pares):
+        ax.text(xi, 101, f"{c['pct_transf']:.0f}%", ha="center", fontsize=7)
     ax.set_ylim(0, 110)
     ax.set_xticks(x)
     ax.set_xticklabels([f"E{e}: {etiqueta(e, c)}" for e, c in pares], rotation=30,
                        ha="right", fontsize=8)
     ax.set_ylabel("% del tiempo GPU total")
-    ax.set_title("Proporción del tiempo GPU (número arriba = % en transferencias)")
+    ax.set_title("Proporción del tiempo GPU (mediana por repetición; número = % en transferencias)")
     ax.legend(loc="lower right")
     guardar(fig, "grafica_gpu_desglose.png")
+
+
+def grafica_repeticiones(filas):
+    """Cada repetición GPU en orden de ejecución (orden del CSV). Arriba: ancho de banda
+    de la copia CPU→GPU. Abajo: kernel dividido por el mínimo de su configuración.
+    Sirve para ver si los tiempos cambian de nivel durante la corrida."""
+    gpu = [f for f in filas if f["implementacion"] == "gpu"]
+    if not gpu:
+        return
+    def clave(f):
+        return (f["experimento"], f["filtro"], f["resolucion"], f["mascara"], f["hilos_por_bloque"])
+    minimo = {}
+    for f in gpu:
+        minimo[clave(f)] = min(minimo.get(clave(f), f["kernel_ms"]), f["kernel_ms"])
+    x = np.arange(1, len(gpu) + 1)
+    lado = [int(f["resolucion"].split("x")[0]) for f in gpu]
+    gbs = [l * l * 4 / 1e6 / f["h2d_ms"] for l, f in zip(lado, gpu)]
+    rel = [f["kernel_ms"] / minimo[clave(f)] for f in gpu]
+    colores = [plt.cm.tab10(f["experimento"] - 1) for f in gpu]
+
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+    a1.scatter(x, gbs, c=colores, s=18)
+    a1.set_ylabel("CPU→GPU (GB/s)")
+    a1.set_ylim(0, max(gbs) * 1.2)
+    a1.set_title("Cada repetición GPU en orden de ejecución (color = experimento)")
+    a2.scatter(x, rel, c=colores, s=18)
+    a2.set_ylabel("Kernel / mínimo de su config.")
+    a2.set_xlabel("Repetición GPU en orden de ejecución")
+    a2.set_ylim(0, max(rel) * 1.15)
+    for a in (a1, a2):
+        a.grid(linestyle="--", alpha=0.5)
+    # Separadores entre configuraciones
+    for i in range(1, len(gpu)):
+        if clave(gpu[i]) != clave(gpu[i - 1]):
+            for a in (a1, a2):
+                a.axvline(i + 0.5, color="gray", linewidth=0.5, alpha=0.5)
+    a1.legend(handles=[plt.Line2D([], [], marker="o", linestyle="", color=plt.cm.tab10(e - 1),
+                                  label=f"Exp {e}") for e in EXPERIMENTOS], ncol=4, loc="lower right")
+    guardar(fig, "grafica_repeticiones.png")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    global SUFIJO
+    SUFIJO = sys.argv[2] if len(sys.argv) > 2 else ""
     ruta_csv = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SALIDA, "mediciones.csv")
     if not os.path.exists(ruta_csv):
         print(f"[ERROR] No se encontró: {ruta_csv}. Ejecuta primero: ./build/convolucion medir")
         sys.exit(1)
     os.makedirs(SALIDA, exist_ok=True)
 
-    resumen = resumir(cargar_csv(ruta_csv))
+    filas = cargar_csv(ruta_csv)
+    resumen = resumir(filas)
+    grafica_repeticiones(filas)
     guardar_resumen(resumen)
+    guardar_tabla_latex(resumen)
     xlabels = {1: "Tipo de filtro", 2: "Resolución (píxeles)", 3: "Tamaño de máscara (k×k)"}
     nombres = {1: "grafica_exp1_filtros.png", 2: "grafica_exp2_resolucion.png",
                3: "grafica_exp3_mascara.png"}

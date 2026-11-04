@@ -2,3 +2,5 @@ build/
 datos/*.pgm
 resultados/*.pgm
 __pycache__/
+resultados/filtros/
+.DS_Store
